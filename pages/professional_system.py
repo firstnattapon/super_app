@@ -16,9 +16,8 @@ from professional_system.flywheel_views import (
 )
 
 # Initialize Logic
-# Adjust path to find trading_data.json at the root of the workspace (relative to super_app/pages/professional_system.py)
-# super_app/pages/professional_system.py -> pages -> super_app -> root
-DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "trading_data.json")
+# pages/professional_system.py -> pages -> root
+DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trading_data.json")
 
 @st.cache_resource
 def get_manager():
