@@ -2,7 +2,7 @@ import json
 import re
 import pandas as pd
 from typing import List, Dict
-from models import TickerData, TradeLog
+from .models import TickerData, TradeLog
 
 class DataManager:
     def __init__(self, filepath: str):
