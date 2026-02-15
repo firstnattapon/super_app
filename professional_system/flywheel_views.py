@@ -2,8 +2,8 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
-from models import TickerData, SystemConfig
-from calculators import calculate_shannon_benchmark, black_scholes
+from .models import TickerData, SystemConfig
+from .calculators import calculate_shannon_benchmark, black_scholes
 
 def render_dashboard_summary(tickers: list[TickerData], config: SystemConfig):
     st.title("📊 Pool Cash Flow (Professional)")
