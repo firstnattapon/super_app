@@ -3,6 +3,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy.stats import norm
 import json
 import os
@@ -560,6 +561,177 @@ def _render_chain_flow():
         height=500,
     )
     st.plotly_chart(fig_payoff, use_container_width=True)
+
+    # =================================================================
+    # 3. ระบบลูกโซ่ (Chain Simulation) — จำลองรอบต่อรอบ
+    # =================================================================
+    st.divider()
+    st.subheader("🔗 ระบบลูกโซ่ — Chain Simulation (Round-by-Round)")
+    st.markdown("""
+    **หลักการ:** ราคาขึ้น → กำไร Shannon + Harvest → จ่ายค่า Put Hedge → 
+    **Surplus = Free Risk** → Scale Up fix_c ด้วย Rollover Equation
+    """)
+
+    # Initialize session state for chain rounds
+    if "chain_rounds" not in st.session_state:
+        st.session_state.chain_rounds = []
+        st.session_state.chain_current_c = fix_c
+        st.session_state.chain_current_t = float(P0)
+        st.session_state.chain_current_b = 0.0
+
+    # Reset button
+    if st.button("🔄 Reset Chain", key="reset_chain"):
+        st.session_state.chain_rounds = []
+        st.session_state.chain_current_c = fix_c
+        st.session_state.chain_current_t = float(P0)
+        st.session_state.chain_current_b = 0.0
+        st.rerun()
+
+    # Current state display
+    cur_c = st.session_state.chain_current_c
+    cur_t = st.session_state.chain_current_t
+    cur_b = st.session_state.chain_current_b
+
+    with st.container(border=True):
+        st.caption(f"🔵 สถานะปัจจุบัน — Round #{len(st.session_state.chain_rounds)}")
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("fix_c (ทุนคงที่)", f"${cur_c:,.2f}")
+        sc2.metric("t (ราคาอ้างอิง)", f"${cur_t:,.2f}")
+        sc3.metric("b (Baseline)", f"${cur_b:,.2f}")
+
+    # --- New Round Input ---
+    with st.form("chain_round_form", clear_on_submit=True):
+        st.markdown("##### ➕ เพิ่ม Round ใหม่ — ราคาเปลี่ยนจาก t → P")
+        cr1, cr2 = st.columns(2)
+        with cr1:
+            new_price = st.number_input(
+                f"ราคาใหม่ P (ปัจจุบัน t = ${cur_t:.2f})",
+                min_value=0.01, value=round(cur_t * 1.2, 2), step=1.0,
+                key="chain_new_p")
+        with cr2:
+            chain_hedge_ratio = st.number_input(
+                "Hedge Ratio (x Put)", min_value=0.0, value=2.0, step=0.5,
+                key="chain_hr", help="2.0 = Over-hedge 2 เท่า (Anti-Fragile)")
+
+        submitted = st.form_submit_button("⚡ Run Chain Round", type="primary")
+        if submitted and new_price > 0:
+            P_new = new_price
+
+            # === STEP 1: Shannon Profit (Simple Reference) ===
+            shannon_profit = cur_c * np.log(P_new / cur_t) if P_new > 0 and cur_t > 0 else 0.0
+
+            # === STEP 2: Harvest Profit (Volatility Premium) ===
+            harvest = cur_c * 0.5 * (sigma ** 2) * T
+
+            total_income = shannon_profit + harvest
+
+            # === STEP 3: Fund Put Hedge ===
+            qty = (cur_c / cur_t) * chain_hedge_ratio
+            strike = cur_t * put_strike_pct
+            premium = black_scholes(cur_t, strike, T, r, sigma, 'put')
+            hedge_cost = qty * premium
+
+            # === STEP 4: Surplus → Scale Up (FREE RISK!) ===
+            surplus_val = total_income - hedge_cost
+            scale_up = max(0, surplus_val)  # Only scale up if positive
+
+            new_c = cur_c + scale_up
+            new_t = P_new  # Re-center price
+
+            # === STEP 5: Rollover Equation (keep baseline continuous) ===
+            # b_new = b_old + c_old * ln(P/t_old) - c_new * ln(P/t_new)
+            # Since t_new = P (re-center), ln(P/t_new) = ln(1) = 0
+            rollover_delta = cur_c * np.log(P_new / cur_t) - new_c * np.log(P_new / new_t)
+            new_b = cur_b + rollover_delta
+
+            # Save round
+            round_data = {
+                "round": len(st.session_state.chain_rounds) + 1,
+                "P_from": cur_t,
+                "P_to": P_new,
+                "c_before": cur_c,
+                "shannon": shannon_profit,
+                "harvest": harvest,
+                "total_income": total_income,
+                "hedge_cost": hedge_cost,
+                "surplus": surplus_val,
+                "scale_up": scale_up,
+                "c_after": new_c,
+                "t_after": new_t,
+                "b_after": new_b,
+                "hedge_ratio": chain_hedge_ratio,
+            }
+            st.session_state.chain_rounds.append(round_data)
+            st.session_state.chain_current_c = new_c
+            st.session_state.chain_current_t = new_t
+            st.session_state.chain_current_b = new_b
+            st.rerun()
+
+    # --- Chain History Table ---
+    if st.session_state.chain_rounds:
+        st.subheader("📋 Chain History — ลูกโซ่ทุก Round")
+
+        rows = []
+        for rd in st.session_state.chain_rounds:
+            rows.append({
+                "Round": rd["round"],
+                "Price": f"${rd['P_from']:.2f} → ${rd['P_to']:.2f}",
+                "Shannon": f"${rd['shannon']:,.2f}",
+                "Harvest": f"${rd['harvest']:,.2f}",
+                "Total": f"${rd['total_income']:,.2f}",
+                "Hedge (x{:.1f})".format(rd["hedge_ratio"]): f"-${rd['hedge_cost']:,.2f}",
+                "Surplus": f"${rd['surplus']:,.2f}",
+                "Scale Up": f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "—",
+                "fix_c After": f"${rd['c_after']:,.2f}",
+                "b After": f"${rd['b_after']:,.2f}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        # --- Chain Evolution Chart ---
+        rounds_x = [0] + [rd["round"] for rd in st.session_state.chain_rounds]
+        c_vals = [fix_c] + [rd["c_after"] for rd in st.session_state.chain_rounds]
+        b_vals = [0] + [rd["b_after"] for rd in st.session_state.chain_rounds]
+
+        fig_chain = make_subplots(rows=1, cols=2,
+                                  subplot_titles=["fix_c Growth (Free Risk)", "Baseline (b) Evolution"])
+
+        fig_chain.add_trace(go.Bar(
+            x=rounds_x, y=c_vals,
+            text=[f"${v:,.0f}" for v in c_vals],
+            textposition="outside",
+            marker_color=["#ff9800"] + ["#00c853" if rd["surplus"] > 0 else "#ff1744"
+                                        for rd in st.session_state.chain_rounds],
+            name="fix_c",
+        ), row=1, col=1)
+
+        fig_chain.add_trace(go.Scatter(
+            x=rounds_x, y=b_vals,
+            mode="lines+markers+text",
+            text=[f"${v:,.0f}" for v in b_vals],
+            textposition="top center",
+            line=dict(width=3, color="#2196f3"),
+            marker=dict(size=10),
+            name="Baseline (b)",
+        ), row=1, col=2)
+
+        fig_chain.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=1, col=2)
+        fig_chain.update_layout(height=350, showlegend=False)
+        fig_chain.update_xaxes(title_text="Round", row=1, col=1)
+        fig_chain.update_xaxes(title_text="Round", row=1, col=2)
+        fig_chain.update_yaxes(title_text="fix_c ($)", row=1, col=1)
+        fig_chain.update_yaxes(title_text="b ($)", row=1, col=2)
+        st.plotly_chart(fig_chain, use_container_width=True)
+
+        # Summary
+        total_scaled = st.session_state.chain_current_c - fix_c
+        st.success(f"""
+        **🔗 Chain Summary:**
+        เริ่มต้น fix_c = **${fix_c:,.2f}** → ปัจจุบัน fix_c = **${st.session_state.chain_current_c:,.2f}**
+        
+        ↑ Scale Up รวม **${total_scaled:,.2f}** (Free Risk — มาจากกำไรล้วนๆ ไม่ใช่เงินต้น!)
+        
+        Baseline (b) = **${st.session_state.chain_current_b:,.2f}** (Rollover Equation ต่อเนื่อง)
+        """)
 
     st.info(f"""
     **Chain System — Full Cycle Analysis:**
