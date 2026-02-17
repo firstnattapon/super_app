@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 from scipy.stats import norm
 import json
 import os
-import re
+import re  
 import copy
 from datetime import datetime
 
