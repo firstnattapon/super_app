@@ -632,13 +632,41 @@ def chapter_chain_system():
     เมื่อ Scale Up เปลี่ยน fix_c → ใช้สมการ Rollover เพื่อให้เส้น Baseline ไม่กระโดด:
     """)
     st.latex(r"b \mathrel{+}= c \cdot \ln\!\left(\frac{P}{t}\right) - c' \cdot \ln\!\left(\frac{P}{t'}\right)")
-    st.markdown("""
-    แล้วตั้ง: $c = c'$, $t = t'$
+    st.markdown("แล้วตั้ง: $c = c'$, $t = t'$")
     
-    **ตัวอย่าง:** c=1500, t=12.6, P=24, c'=2500, t'=24
+    # --- Method Selection ---
+    rollover_method = st.radio(
+        "🔀 เลือกวิธี Rollover",
+        ["แบบ 1: ล็อคกำไร + เริ่มใหม่ (t' = P ปัจจุบัน) ✅ แนะนำ",
+         "แบบ 2: วัดจากจุดเดิม (t' = t เดิม)"],
+        index=0,
+        key="ch8_rollover_method",
+        help="ทั้งสองแบบให้เส้นต่อเนื่อง ณ จุด Rollover เท่ากัน"
+    )
+    use_method_1 = "แบบ 1" in rollover_method
     
-    $b = 0 + 1500 \\times \\ln(24/12.6) - 2500 \\times \\ln(24/24) = 966.54$
-    """)
+    # --- Show example for selected method ---
+    if use_method_1:
+        st.success("""
+        **📗 แบบ 1: เปิดสมุดใหม่ (Reset t' = P)**
+        - กำไรเก่าถูก "ล็อค" ไว้ใน b
+        - t' = ราคาปัจจุบัน → `ln(P/P) = 0` → เทอมใหม่หายไป
+        - **ใช้งานจริง** ง่าย ชัดเจน
+        
+        **ตัวอย่าง:** c=1500, t=12.6, P=24, c'=2500, **t'=24**
+        
+        $b = 0 + 1500 × \\ln(24/12.6) - 2500 × \\ln(24/24) = 966.54 - 0 = \\mathbf{966.54}$
+        """)
+    else:
+        st.info("""
+        **📘 แบบ 2: สมุดเล่มเดิม (t' = t เดิม)**
+        - จุดอ้างอิงเดิมไม่เปลี่ยน → วัดทุกอย่างจากจุดเริ่มต้นเดียวกัน
+        - เหมาะสำหรับ **วิเคราะห์ย้อนหลัง (Backtest)**
+        
+        **ตัวอย่าง:** c=1500, t=12.6, P=24, c'=2500, **t'=12.6**
+        
+        $b = 0 + 1500 × \\ln(24/12.6) - 2500 × \\ln(24/12.6) = (1500-2500) × 0.6445 = \\mathbf{-644.36}$
+        """)
     
     st.markdown("---")
     
@@ -697,16 +725,23 @@ def chapter_chain_system():
     
     new_fix_c = fix_c + max(surplus, 0)
     free_risk = max(surplus, 0)
-    new_ref_price = Pt  # Reset reference to current price after scale up
+    
+    # Choose reference price based on selected method
+    if use_method_1:
+        new_ref_price = Pt  # Method 1: Reset to current price
+    else:
+        new_ref_price = P0  # Method 2: Keep original reference
     
     # Calculate Rollover
     b_accumulated = rollover_baseline(0.0, fix_c, new_fix_c, P0, new_ref_price, Pt)
+    
+    method_label = "แบบ 1 (Reset)" if use_method_1 else "แบบ 2 (เดิม)"
     
     col_s3a, col_s3b, col_s3c = st.columns(3)
     col_s3a.metric("fix_c เดิม → ใหม่", f"${new_fix_c:,.2f}",
                    delta=f"+${free_risk:,.2f} (Free Risk)")
     col_s3b.metric("Rollover Baseline (b)", f"${b_accumulated:,.2f}",
-                   delta="เส้นต่อเนื่อง")
+                   delta=f"เส้นต่อเนื่อง ({method_label})")
     col_s3c.metric("ราคาอ้างอิงใหม่ (t')", f"${new_ref_price:,.2f}",
                    delta=f"เดิม: ${P0:.2f}")
     
@@ -757,7 +792,11 @@ def chapter_chain_system():
         surplus_r2 = total_r2 - hedge_cost_r2
         
         fix_c_r2 = new_fix_c + max(surplus_r2, 0)
-        ref_r2 = P_round2
+        # Apply same rollover method for Round 2
+        if use_method_1:
+            ref_r2 = P_round2       # Method 1: Reset to current price
+        else:
+            ref_r2 = new_ref_price  # Method 2: Keep previous reference
         b_r2 = rollover_baseline(b_accumulated, new_fix_c, fix_c_r2, new_ref_price, ref_r2, P_round2)
         
         history_data["Round"].append("→ Round 2")
@@ -770,7 +809,7 @@ def chapter_chain_system():
         )
         
         st.info(f"""
-        **Round 2 Results:**
+        **Round 2 Results ({method_label}):**
         - Shannon: ${shannon_r2:,.2f} | Harvest: ${harvest_r2:,.2f} | Total: ${total_r2:,.2f}
         - Hedge Cost: ${hedge_cost_r2:,.2f} | Surplus: ${surplus_r2:,.2f}
         - fix_c: ${new_fix_c:,.2f} → **${fix_c_r2:,.2f}** | b = **${b_r2:,.2f}**
