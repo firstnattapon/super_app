@@ -604,6 +604,342 @@ def chapter_7_collateral_magic():
     """)
 
 
+# --- Chapter 8: Chain System (ระบบลูกโซ่) ---
+
+def rollover_baseline(b, c_old, c_new, t_old, t_new, P):
+    """
+    Rollover Equation: b += c · ln(P/t) - c' · ln(P/t')
+    แล้วตั้ง c = c', t = t'
+    ทำให้เส้น Baseline ต่อเนื่องแม้เปลี่ยน fix_c
+    """
+    term_old = c_old * np.log(P / t_old)
+    term_new = c_new * np.log(P / t_new)
+    b_new = b + term_old - term_new
+    return b_new
+
+def chapter_chain_system():
+    st.header("บทที่ 8: Chain System (ระบบลูกโซ่)")
+    st.markdown("""
+    **Concept:** เชื่อมกำไรจากทุก Flywheel เข้าเป็น **ลูกโซ่** (Chain) — 
+    กำไรจากขั้นหนึ่งไหลไปเป็น "เชื้อเพลิง" ให้ขั้นถัดไป วนเป็นวงจร
+    
+    > "กำไร Shannon + Harvest → จ่ายค่า Put Hedge → ส่วนเหลือ Scale Up fix_c → ทุนใหม่ = **Free Risk**"
+    """)
+    
+    # --- Rollover Equation Explanation ---
+    st.subheader("📐 Rollover Equation (สมการเส้นต่อเนื่อง)")
+    st.markdown("""
+    เมื่อ Scale Up เปลี่ยน fix_c → ใช้สมการ Rollover เพื่อให้เส้น Baseline ไม่กระโดด:
+    """)
+    st.latex(r"b \mathrel{+}= c \cdot \ln\!\left(\frac{P}{t}\right) - c' \cdot \ln\!\left(\frac{P}{t'}\right)")
+    st.markdown("""
+    แล้วตั้ง: $c = c'$, $t = t'$
+    
+    **ตัวอย่าง:** c=1500, t=12.6, P=24, c'=2500, t'=24
+    
+    $b = 0 + 1500 \\times \\ln(24/12.6) - 2500 \\times \\ln(24/24) = 966.54$
+    """)
+    
+    st.markdown("---")
+    
+    # --- Input Panel ---
+    st.subheader("⚙️ ตั้งค่า Chain Parameters")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        fix_c = st.number_input("Fix Capital เริ่มต้น (c)", value=1500.0, step=100.0, key="ch8_fixc")
+        P0 = st.number_input("ราคาอ้างอิงเริ่มต้น (t₀)", value=12.60, step=0.1, key="ch8_p0", format="%.2f")
+    with col2:
+        Pt = st.number_input("ราคาปัจจุบัน (P)", value=24.0, step=0.1, key="ch8_pt", format="%.2f")
+        sigma = st.slider("ความผันผวน (σ)", 0.1, 1.0, 0.5, key="ch8_sigma")
+    with col3:
+        put_strike_pct = st.slider("Put Strike (% of P)", 50, 100, 90, key="ch8_putstrike", help="เช่น 90% ของราคาปัจจุบัน")
+        hedge_ratio = st.slider("Hedge Ratio", 0.5, 5.0, 2.0, step=0.1, key="ch8_hedge")
+    
+    r = 0.05  # Risk-free rate
+    T = 1.0   # 1 Year horizon
+    put_strike = Pt * (put_strike_pct / 100.0)
+    
+    # === STAGE 1: Shannon Simple + Harvest ===
+    st.subheader("🔗 Stage 1: Shannon Simple + Volatility Harvest")
+    
+    shannon_profit = fix_c * np.log(Pt / P0)
+    harvest_profit = fix_c * 0.5 * (sigma ** 2) * T
+    total_stage1 = shannon_profit + harvest_profit
+    
+    col_s1a, col_s1b, col_s1c = st.columns(3)
+    col_s1a.metric("Shannon Profit", f"${shannon_profit:,.2f}", 
+                   delta=f"fix_c × ln({Pt:.1f}/{P0:.1f})")
+    col_s1b.metric("Harvest Profit (½σ²)", f"${harvest_profit:,.2f}",
+                   delta=f"fix_c × ½ × {sigma:.2f}²")
+    col_s1c.metric("Total Stage 1", f"${total_stage1:,.2f}",
+                   delta="Shannon + Harvest")
+    
+    # === STAGE 2: Hedge Put ===
+    st.subheader("🛡️ Stage 2: Hedge Put (จ่ายค่าประกันจากกำไร)")
+    
+    put_premium = black_scholes(Pt, put_strike, T, r, sigma, 'put')
+    equiv_shares = fix_c / Pt
+    qty_puts = equiv_shares * hedge_ratio
+    total_hedge_cost = qty_puts * put_premium
+    surplus = total_stage1 - total_hedge_cost
+    
+    col_s2a, col_s2b, col_s2c = st.columns(3)
+    col_s2a.metric("Put Premium (ต่อหุ้น)", f"${put_premium:,.2f}",
+                   delta=f"Strike ${put_strike:.1f}")
+    col_s2b.metric("Hedge Cost รวม", f"${total_hedge_cost:,.2f}",
+                   delta=f"{qty_puts:.1f} Puts × ${put_premium:.2f}")
+    col_s2c.metric("Surplus (ส่วนเหลือ)", f"${surplus:,.2f}",
+                   delta="กำไร - ค่าประกัน", delta_color="normal" if surplus >= 0 else "inverse")
+    
+    # === STAGE 3: Scale Up + Rollover ===
+    st.subheader("📈 Stage 3: Scale Up (Constant Value → Free Risk)")
+    
+    new_fix_c = fix_c + max(surplus, 0)
+    free_risk = max(surplus, 0)
+    new_ref_price = Pt  # Reset reference to current price after scale up
+    
+    # Calculate Rollover
+    b_accumulated = rollover_baseline(0.0, fix_c, new_fix_c, P0, new_ref_price, Pt)
+    
+    col_s3a, col_s3b, col_s3c = st.columns(3)
+    col_s3a.metric("fix_c เดิม → ใหม่", f"${new_fix_c:,.2f}",
+                   delta=f"+${free_risk:,.2f} (Free Risk)")
+    col_s3b.metric("Rollover Baseline (b)", f"${b_accumulated:,.2f}",
+                   delta="เส้นต่อเนื่อง")
+    col_s3c.metric("ราคาอ้างอิงใหม่ (t')", f"${new_ref_price:,.2f}",
+                   delta=f"เดิม: ${P0:.2f}")
+    
+    if surplus >= 0:
+        st.success(f"""
+        ✅ **Free Risk!** ทุนเพิ่มขึ้น ${free_risk:,.2f} โดยไม่ต้องใส่เงินใหม่
+        - fix_c: ${fix_c:,.2f} → ${new_fix_c:,.2f}
+        - ราคาอ้างอิง: ${P0:.2f} → ${new_ref_price:.2f}
+        - Accumulated Baseline (b): ${b_accumulated:,.2f}
+        """)
+    else:
+        st.warning(f"""
+        ⚠️ กำไรไม่พอจ่ายค่า Hedge! ขาดอีก ${abs(surplus):,.2f}
+        - ลด Hedge Ratio หรือรอให้ราคาวิ่งต่อ
+        """)
+    
+    st.markdown("---")
+    
+    # === ROLLOVER HISTORY TABLE ===
+    st.subheader("📋 Rollover History (ประวัติการ Roll)")
+    
+    history_data = {
+        "Round": ["Start", "→ Round 1"],
+        "c (fix_c)": [f"${fix_c:,.2f}", f"${new_fix_c:,.2f}"],
+        "t (ref price)": [f"${P0:.2f}", f"${new_ref_price:.2f}"],
+        "P (current)": [f"${P0:.2f}", f"${Pt:.2f}"],
+        "b (accumulated)": [f"$0.00", f"${b_accumulated:,.2f}"],
+        "Equation": [
+            "—",
+            f"0 + {fix_c:.0f}×ln({Pt:.1f}/{P0:.1f}) − {new_fix_c:.0f}×ln({Pt:.1f}/{new_ref_price:.1f})"
+        ]
+    }
+    
+    # Multi-round simulation: if user wants to simulate one more round
+    if st.checkbox("🔄 จำลอง Round 2 (ราคาวิ่งต่อ)", key="ch8_round2"):
+        P_round2 = st.number_input("ราคาที่ Round 2 (P₂)", value=Pt * 1.3, step=0.1, key="ch8_p2", format="%.2f")
+        
+        # Round 2 calculations
+        shannon_r2 = new_fix_c * np.log(P_round2 / new_ref_price)
+        harvest_r2 = new_fix_c * 0.5 * (sigma ** 2) * T
+        total_r2 = shannon_r2 + harvest_r2
+        
+        put_strike_r2 = P_round2 * (put_strike_pct / 100.0)
+        put_prem_r2 = black_scholes(P_round2, put_strike_r2, T, r, sigma, 'put')
+        equiv_shares_r2 = new_fix_c / P_round2
+        qty_puts_r2 = equiv_shares_r2 * hedge_ratio
+        hedge_cost_r2 = qty_puts_r2 * put_prem_r2
+        surplus_r2 = total_r2 - hedge_cost_r2
+        
+        fix_c_r2 = new_fix_c + max(surplus_r2, 0)
+        ref_r2 = P_round2
+        b_r2 = rollover_baseline(b_accumulated, new_fix_c, fix_c_r2, new_ref_price, ref_r2, P_round2)
+        
+        history_data["Round"].append("→ Round 2")
+        history_data["c (fix_c)"].append(f"${fix_c_r2:,.2f}")
+        history_data["t (ref price)"].append(f"${ref_r2:.2f}")
+        history_data["P (current)"].append(f"${P_round2:.2f}")
+        history_data["b (accumulated)"].append(f"${b_r2:,.2f}")
+        history_data["Equation"].append(
+            f"{b_accumulated:.2f} + {new_fix_c:.0f}×ln({P_round2:.1f}/{new_ref_price:.1f}) − {fix_c_r2:.0f}×ln({P_round2:.1f}/{ref_r2:.1f})"
+        )
+        
+        st.info(f"""
+        **Round 2 Results:**
+        - Shannon: ${shannon_r2:,.2f} | Harvest: ${harvest_r2:,.2f} | Total: ${total_r2:,.2f}
+        - Hedge Cost: ${hedge_cost_r2:,.2f} | Surplus: ${surplus_r2:,.2f}
+        - fix_c: ${new_fix_c:,.2f} → **${fix_c_r2:,.2f}** | b = **${b_r2:,.2f}**
+        """)
+    
+    df_history = pd.DataFrame(history_data)
+    st.table(df_history)
+    
+    st.markdown("---")
+    
+    # === SANKEY DIAGRAM ===
+    st.subheader("🌊 Profit Flow (Sankey Diagram)")
+    
+    # Sankey nodes: Shannon, Harvest, Total→Hedge Cost, →Surplus, →Scale Up
+    sankey_labels = [
+        f"Shannon Profit\n${shannon_profit:,.0f}",       # 0
+        f"Harvest Profit\n${harvest_profit:,.0f}",        # 1
+        f"Total Stage 1\n${total_stage1:,.0f}",           # 2
+        f"Hedge Cost\n${total_hedge_cost:,.0f}",          # 3
+        f"Surplus\n${max(surplus, 0):,.0f}",              # 4
+        f"Scale Up fix_c\n${new_fix_c:,.0f}",             # 5
+    ]
+    
+    sankey_source = [0, 1, 2, 2]
+    sankey_target = [2, 2, 3, 4]
+    sankey_value = [
+        max(shannon_profit, 0.01), 
+        max(harvest_profit, 0.01), 
+        max(total_hedge_cost, 0.01), 
+        max(surplus, 0.01)
+    ]
+    sankey_colors = [
+        'rgba(99, 110, 250, 0.6)',   # Shannon → Total
+        'rgba(0, 204, 150, 0.6)',    # Harvest → Total
+        'rgba(239, 85, 59, 0.6)',    # Total → Hedge
+        'rgba(255, 161, 90, 0.6)',   # Total → Surplus
+    ]
+    
+    if surplus > 0:
+        sankey_source.append(4)
+        sankey_target.append(5)
+        sankey_value.append(surplus)
+        sankey_colors.append('rgba(171, 99, 250, 0.6)')  # Surplus → Scale Up
+    
+    fig_sankey = go.Figure(data=[go.Sankey(
+        node=dict(
+            pad=20,
+            thickness=25,
+            line=dict(color="white", width=1),
+            label=sankey_labels,
+            color=['#636EFA', '#00CC96', '#FFA15A', '#EF553B', '#AB63FA', '#19D3F3']
+        ),
+        link=dict(
+            source=sankey_source,
+            target=sankey_target,
+            value=sankey_value,
+            color=sankey_colors
+        )
+    )])
+    fig_sankey.update_layout(
+        title="Chain System: Profit Flow",
+        font_size=14,
+        height=400
+    )
+    st.plotly_chart(fig_sankey, use_container_width=True)
+    
+    # === WATERFALL CHART ===
+    st.subheader("📊 Waterfall Chart (สะสมกำไร)")
+    
+    waterfall_labels = [
+        "Shannon Profit",
+        "Harvest Profit", 
+        "Total Stage 1",
+        "Hedge Cost",
+        "Surplus (Free Risk)",
+        "New fix_c"
+    ]
+    waterfall_measures = ["relative", "relative", "total", "relative", "total", "total"]
+    waterfall_values = [
+        shannon_profit, 
+        harvest_profit, 
+        total_stage1,
+        -total_hedge_cost, 
+        surplus,
+        new_fix_c
+    ]
+    waterfall_text = [f"${v:,.2f}" for v in waterfall_values]
+    
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="Chain", 
+        orientation="v",
+        measure=waterfall_measures,
+        x=waterfall_labels,
+        y=waterfall_values,
+        text=waterfall_text,
+        textposition="outside",
+        connector=dict(line=dict(color="rgb(63, 63, 63)")),
+        increasing=dict(marker_color='#00CC96'),
+        decreasing=dict(marker_color='#EF553B'),
+        totals=dict(marker_color='#636EFA')
+    ))
+    fig_waterfall.update_layout(
+        title="Chain System: Profit Waterfall",
+        yaxis_title="Value ($)",
+        height=450,
+        showlegend=False
+    )
+    st.plotly_chart(fig_waterfall, use_container_width=True)
+    
+    # === PAYOFF PROFILE: Chained vs Stand-alone ===
+    st.subheader("📈 Payoff Profile: Chained System")
+    
+    price_range = np.linspace(P0 * 0.3, Pt * 2.5, 200)
+    
+    # A. Shannon Simple (old fix_c, old ref price)
+    baseline_old = fix_c * (1 + np.log(price_range / P0))
+    
+    # B. Shannon Simple with Rollover (new fix_c, new ref price, continuous)
+    # After rollover: value = b + c' * (1 + ln(P / t'))
+    baseline_rolled = b_accumulated + new_fix_c * (1 + np.log(price_range / new_ref_price))
+    
+    # C. Chained + Put protection payoff at current params
+    put_payoff_chain = qty_puts * np.maximum(put_strike - price_range, 0)
+    chained_shielded = baseline_rolled + put_payoff_chain - total_hedge_cost
+    
+    # D. Buy & Hold equivalent
+    buy_hold = (fix_c / P0) * price_range
+    
+    fig_payoff = go.Figure()
+    fig_payoff.add_trace(go.Scatter(
+        x=price_range, y=buy_hold, name="Buy & Hold",
+        line=dict(dash='dot', color='gray', width=1)
+    ))
+    fig_payoff.add_trace(go.Scatter(
+        x=price_range, y=baseline_old, name=f"Shannon (c={fix_c:.0f}, t={P0:.1f})",
+        line=dict(dash='dash', color='purple', width=1)
+    ))
+    fig_payoff.add_trace(go.Scatter(
+        x=price_range, y=baseline_rolled, name=f"After Rollover (c'={new_fix_c:.0f}, t'={new_ref_price:.1f})",
+        line=dict(color='#636EFA', width=2)
+    ))
+    fig_payoff.add_trace(go.Scatter(
+        x=price_range, y=chained_shielded, name=f"Chained + Shield ({hedge_ratio}x Puts)",
+        line=dict(color='#00CC96', width=3)
+    ))
+    
+    # Mark rollover point
+    fig_payoff.add_vline(x=Pt, line_width=2, line_dash="dash", line_color="orange",
+                         annotation_text=f"Rollover Point (P={Pt:.1f})")
+    fig_payoff.add_vline(x=P0, line_width=1, line_dash="dot", line_color="gray",
+                         annotation_text=f"Start (P₀={P0:.1f})")
+    
+    fig_payoff.update_layout(
+        title="Chain System: Continuous Baseline + Shield",
+        xaxis_title="Stock Price ($)",
+        yaxis_title="Portfolio Value ($)",
+        hovermode="x unified",
+        height=500
+    )
+    st.plotly_chart(fig_payoff, use_container_width=True)
+    
+    st.info("""
+    **Chain System Analysis:**
+    1. **เส้นสีม่วง (Shannon เดิม):** Baseline เดิมก่อน Scale Up
+    2. **เส้นสีน้ำเงิน (After Rollover):** Baseline ใหม่หลัง Rollover — **ต่อเนื่อง** ไม่กระโดด ณ จุด Rollover
+    3. **เส้นสีเขียว (Chained + Shield):** เมื่อเติม Put Hedge เข้าไป → ขาลงมี Anti-Fragile Protection
+    4. **ลูกโซ่ทำงานอย่างไร:** กำไรจาก Stage 1 → จ่ายค่า Hedge → ส่วนเหลือ Scale Up fix_c → **Free Risk** → วนรอบใหม่ด้วยทุนที่ใหญ่ขึ้น
+    """)
+
 
 # --- Master Study Guide and Quiz ---
 def master_study_guide_quiz():
