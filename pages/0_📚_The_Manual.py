@@ -1,4 +1,4 @@
-import sys 
+import sys
 import os
 
 # Add root directory to sys.path to allow importing modules from root
@@ -28,6 +28,7 @@ page = st.sidebar.radio("เลือกบทเรียน:",
         "บทที่ 5: Dynamic Scaling",
         "บทที่ 6: Synthetic Dividend",
         "บทที่ 7: Collateral Magic",
+        "บทที่ 8: Chain System (ลูกโซ่)",
         "📝 แบบทดสอบ (Quiz)",
         "🛠️ Workshop: จัดพอร์ตจริง",
         "📚 อภิธานศัพท์ (Glossary)"
@@ -61,6 +62,9 @@ elif page == "บทที่ 6: Synthetic Dividend":
 
 elif page == "บทที่ 7: Collateral Magic":
     flywheels.chapter_7_collateral_magic()
+
+elif page == "บทที่ 8: Chain System (ลูกโซ่)":
+    flywheels.chapter_chain_system()
 
 elif page == "📝 แบบทดสอบ (Quiz)":
     flywheels.master_study_guide_quiz()
