@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -6,13 +7,13 @@ from plotly.subplots import make_subplots
 from scipy.stats import norm
 import json
 import os
-import re  
+import re
 import copy
 from datetime import datetime
 
-# ============================================================ 
+# ============================================================
 # UTILITIES
-# ============================================================ 
+# ============================================================
 
 def sanitize_number_str(s):
     """Normalize number strings: replace Unicode minus, remove commas/spaces."""
@@ -635,19 +636,31 @@ def _render_run_round_form(data):
     rounds = t_data.get("rounds", [])
     if rounds:
         st.divider()
-        st.subheader(f"📜 Chain Rounds — {selected}")
+        st.subheader("📋 Chain History — ลูกโซ่ทุก Round")
         rows = []
         for rd in rounds:
+            shannon = rd.get("shannon_profit", 0)
+            harvest = rd.get("harvest_profit", 0)
+            total_income = shannon + harvest
+            hr = rd.get("hedge_ratio", 2.0)
+            p_old = rd.get("p_old", 0)
+            p_new = rd.get("p_new", 0)
+            pct = ((p_new / p_old) - 1) * 100 if p_old else 0
             rows.append({
-                "#": rd.get("round_id", ""),
+                "Round": rd.get("round_id", ""),
                 "Date": rd.get("date", ""),
-                "Price": f"${rd['p_old']} → ${rd['p_new']}",
-                "Shannon": f"${rd['shannon_profit']:,.2f}",
-                "Harvest": f"${rd['harvest_profit']:,.2f}",
-                "Hedge": f"-${rd['hedge_cost']:,.2f}",
-                "Surplus": f"${rd['surplus']:,.2f}",
-                "fix_c After": f"${rd['c_after']:,.2f}",
-                "b After": f"${rd['b_after']:,.2f}",
+                "Price": f"${p_old:,.2f} → ${p_new:,.2f}",
+                "Δ%": f"{pct:+.1f}%",
+                "c_before": f"${rd.get('c_before', 0):,.0f}",
+                "Shannon": f"${shannon:,.2f}",
+                "Harvest": f"${harvest:,.2f}",
+                "Total": f"${total_income:,.2f}",
+                f"Hedge (x{hr:.1f})": f"-${rd.get('hedge_cost', 0):,.2f}",
+                "Surplus": f"${rd.get('surplus', 0):,.2f}",
+                "Scale Up": f"+${rd.get('scale_up', 0):,.2f}" if rd.get("scale_up", 0) > 0 else "—",
+                "fix_c After": f"${rd.get('c_after', 0):,.2f}",
+                "b After": f"${rd.get('b_after', 0):,.2f}",
+                "σ": f"{rd.get('sigma', 0):.2f}",
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
