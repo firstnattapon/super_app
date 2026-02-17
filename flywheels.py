@@ -7,7 +7,7 @@ from scipy.stats import norm
 import json
 import os
 from datetime import datetime
- 
+
 # ============================================================
 # 1. CORE MATH & UTILITIES
 # ============================================================
@@ -399,7 +399,65 @@ def main():
 
     elif menu == "Manual Page":
         st.info("Legacy Manual Content.")
-        # Re-import original manual logic here if needed, or keep separate.
+        chapter_0_introduction()
+        # You can add a selector here if you want internal navigation for manual
+
+# ============================================================
+# 5. LEGACY / MANUAL SUPPORT
+# (Functions required by pages/0_📚_The_Manual.py)
+# ============================================================
+
+def chapter_0_introduction():
+    st.header("บทที่ 0: Introduction")
+    st.warning("Content currently unavailable. Please restore from backup if needed.")
+
+def chapter_1_baseline():
+    st.header("บทที่ 1: Baseline")
+    st.warning("Content currently unavailable. Please restore from backup if needed.")
+
+def chapter_2_shannon_process():
+    st.header("บทที่ 2: Shannon Process")
+    st.warning("Content currently unavailable.")
+
+def chapter_3_volatility_harvesting():
+    st.header("บทที่ 3: Volatility Harvesting")
+    st.warning("Content currently unavailable.")
+
+def chapter_4_black_swan_shield():
+    st.header("บทที่ 4: Black Swan Shield")
+    st.warning("Content currently unavailable.")
+
+def chapter_5_dynamic_scaling():
+    st.header("บทที่ 5: Dynamic Scaling")
+    st.warning("Content currently unavailable.")
+
+def chapter_6_synthetic_dividend():
+    st.header("บทที่ 6: Synthetic Dividend")
+    st.warning("Content currently unavailable.")
+
+def chapter_7_collateral_magic():
+    st.header("บทที่ 7: Collateral Magic")
+    st.warning("Content currently unavailable.")
+
+def chapter_chain_system():
+    st.header("บทที่ 8: Chain System (ระบบลูกโซ่)")
+    st.info("🚀 **Upgrade Alert:** ระบบลูกโซ่ถูกย้ายไปเป็น **'Core Engine'** ในหน้าหลักแล้วครับ!")
+    st.markdown("""
+    **Concept:** เชื่อมกำไรจากทุก Flywheel เข้าเป็น **ลูกโซ่** (Chain) — 
+    กำไรจากขั้นหนึ่งไหลไปเป็น "เชื้อเพลิง" ให้ขั้นถัดไป วนเป็นวงจร **ทั้งขาขึ้น + ขาลง**
+    
+    > **ขาขึ้น:** กำไร Shannon + Harvest → จ่ายค่า Put Hedge → Surplus → Scale Up fix_c = **Free Risk**
+    > 
+    > **ขาลง:** Put ระเบิดกำไร → เข้า **Pool CF** (War Chest) → Deploy (เมื่อ Regime กลับ)
+    """)
+    st.success("เชิญใช้งานที่หน้า **Home (Chain System Core)** ได้เลยครับ")
+
+# Aliases
+chapter_2_volatility_harvest = chapter_2_shannon_process
+chapter_3_convexity_engine = chapter_3_volatility_harvesting
+def master_study_guide_quiz(): pass
+def paper_trading_workshop(): pass
+def glossary_section(): pass
 
 if __name__ == "__main__":
     main()
