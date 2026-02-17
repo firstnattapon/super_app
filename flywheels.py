@@ -415,18 +415,23 @@ def chapter_4_black_swan_shield():
     qty_stock_only = initial_capital / stock_price
     stock_only_value = qty_stock_only * prices
     
-    # B. Base 80/20 Portfolio (No Hedge)
-    leaps_payoff = qty_leaps * np.maximum(prices - leaps_strike, 0)
-    base_80_20_value = leaps_payoff + cash_value_expiry
-    
-    # C. Shielded Portfolio (80/20 + Puts)
+    # Put Payoff (used by Shielded & Dynamic)
     put_payoff = qty_puts * np.maximum(put_strike - prices, 0)
-    shielded_value = leaps_payoff + remaining_cash_expiry + put_payoff
     
-    # D. Dynamic Shield (Add Vol Premium)
-    # Vol Premium on the Base Capital
-    vol_gain = initial_capital * (0.5 * volatility**2 * T)
-    shielded_dynamic_value = shielded_value + vol_gain
+    # Vol Premium term
+    vol_premium = 0.5 * volatility**2 * T
+    
+    # B. Base 80/20 (Unhedged) — Baseline Theoretical PnL (No k, No Vol)
+    # B_base = fix_c + fix_c * ln(Pt/P0)
+    base_80_20_value = initial_capital + initial_capital * np.log(prices / stock_price)
+    
+    # C. Shielded Portfolio (80/20 + Puts) — Baseline - Put Cost + Put Payoff
+    # B_shielded = (fix_c - put_cost) + fix_c * ln(Pt/P0) + put_payoff
+    shielded_value = (initial_capital - total_put_cost) + initial_capital * np.log(prices / stock_price) + put_payoff
+    
+    # D. Dynamic Shield (+Vol Premium) — Baseline + Vol Premium - Put Cost + Put Payoff
+    # B_dynamic = (fix_c - put_cost) + fix_c * (ln(Pt/P0) + 0.5σ²T) + put_payoff
+    shielded_dynamic_value = (initial_capital - total_put_cost) + initial_capital * (np.log(prices / stock_price) + vol_premium) + put_payoff
     
     # E. Shannon Simple (Theoretical Reference, No Cost 'k')
     # B_t = Capital * (1 + ln(Pt/P0))
