@@ -13,6 +13,12 @@ import re
 # UTILITIES
 # ============================================================
 
+def sanitize_number_str(s):
+    """Normalize number strings: replace Unicode minus, remove commas/spaces."""
+    if not s:
+        return s
+    return s.replace('\u2212', '-').replace('\u2013', '-').replace('\u2014', '-').replace(',', '').strip()
+
 def black_scholes(S, K, T, r, sigma, option_type='call'):
     """Black-Scholes option pricing."""
     if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
@@ -38,7 +44,9 @@ def generate_gbm(S0, mu, sigma, T, dt, n_sims=1):
 # DATA LAYER — trading_data.json
 # ============================================================
 
-_DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_data.json")
+_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_FILE = os.path.join(_DATA_DIR, "trading_data.json")
+_BACKUP_FILE = os.path.join(_DATA_DIR, "trading_data.backup.json")
 
 def load_trading_data():
     """Load portfolio data from trading_data.json."""
@@ -49,7 +57,14 @@ def load_trading_data():
         return []
 
 def save_trading_data(data):
-    """Save portfolio data to trading_data.json."""
+    """Save portfolio data with auto-backup."""
+    # Auto-backup before overwrite
+    if os.path.exists(_DATA_FILE):
+        try:
+            import shutil
+            shutil.copy2(_DATA_FILE, _BACKUP_FILE)
+        except Exception:
+            pass
     with open(_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -57,11 +72,12 @@ def parse_final(final_str):
     """Parse 'Final' field → (t, c, b).  e.g. '12, 4000, -519.45' → (12.0, 4000.0, -519.45)"""
     if not final_str:
         return None, None, None
-    parts = [p.strip() for p in final_str.split(",")]
+    final_str = sanitize_number_str(final_str)
+    parts = [sanitize_number_str(p) for p in final_str.split(",")]
     try:
-        t = float(parts[0]) if len(parts) > 0 else None
-        c = float(parts[1]) if len(parts) > 1 else None
-        b = float(parts[2]) if len(parts) > 2 else 0.0
+        t = float(parts[0]) if len(parts) > 0 and parts[0] else None
+        c = float(parts[1]) if len(parts) > 1 and parts[1] else None
+        b = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
         return t, c, b
     except (ValueError, IndexError):
         return None, None, None
@@ -75,24 +91,23 @@ def parse_beta_numbers(beta_str):
     ev, lock_pnl = 0.0, 0.0
     if not beta_str:
         return ev, lock_pnl
+    beta_str = sanitize_number_str(beta_str)
     # Extract Ev
-    ev_match = re.search(r'Ev:\s*([+-]?[\d,.]+)', beta_str)
+    ev_match = re.search(r'Ev:\s*([+-]?[\d.]+)', beta_str)
     if ev_match:
         try:
-            ev = float(ev_match.group(1).replace(",", ""))
+            ev = float(ev_match.group(1))
         except ValueError:
             pass
     # Extract Lock_P&L (may have multiple values like +1618.48 +498|+231)
     lock_match = re.search(r'Lock_P&L:\s*(.+)', beta_str)
     if lock_match:
         raw = lock_match.group(1).strip()
-        # Split by | and + to handle patterns like "+1618.48 +498|+231" or "-519.45-438+599+485"
-        # Replace | with +, then split all numbers
         raw = raw.replace("|", "+")
-        nums = re.findall(r'[+-]?[\d,.]+', raw)
+        nums = re.findall(r'[+-]?[\d.]+', raw)
         for n in nums:
             try:
-                lock_pnl += float(n.replace(",", ""))
+                lock_pnl += float(n)
             except ValueError:
                 pass
     return ev, lock_pnl
@@ -101,10 +116,11 @@ def parse_beta_net(beta_mem_str):
     """Extract Net value from beta_momory string. e.g. 'Net: -204.00' → -204.0"""
     if not beta_mem_str:
         return 0.0
-    m = re.search(r'Net:\s*([+-]?[\d,.]+)', beta_mem_str)
+    beta_mem_str = sanitize_number_str(beta_mem_str)
+    m = re.search(r'Net:\s*([+-]?[\d.]+)', beta_mem_str)
     if m:
         try:
-            return float(m.group(1).replace(",", ""))
+            return float(m.group(1))
         except ValueError:
             return 0.0
     return 0.0
@@ -115,6 +131,7 @@ def parse_surplus_iv(surplus_str):
     """
     if not surplus_str or "No_Expiry" in surplus_str:
         return 0.0
+    surplus_str = sanitize_number_str(surplus_str)
     matches = re.findall(r'=\s*([+-]?\d+(?:\.\d+)?)', surplus_str)
     total = 0.0
     for m in matches:
@@ -573,11 +590,14 @@ def _render_chain_flow():
     """)
 
     # Initialize session state for chain rounds
-    if "chain_rounds" not in st.session_state:
+    # Auto-reset chain if config changed
+    config_key = f"{fix_c}_{P0}_{sigma}"
+    if "chain_rounds" not in st.session_state or st.session_state.get("_chain_config") != config_key:
         st.session_state.chain_rounds = []
         st.session_state.chain_current_c = fix_c
         st.session_state.chain_current_t = float(P0)
         st.session_state.chain_current_b = 0.0
+        st.session_state._chain_config = config_key
 
     # Reset button
     if st.button("🔄 Reset Chain", key="reset_chain"):
@@ -585,6 +605,7 @@ def _render_chain_flow():
         st.session_state.chain_current_c = fix_c
         st.session_state.chain_current_t = float(P0)
         st.session_state.chain_current_b = 0.0
+        st.session_state._chain_config = config_key
         st.rerun()
 
     # Current state display
@@ -985,19 +1006,14 @@ def _form_quick_update(data):
             _, _, b = parse_final(ticker_data.get("Final", ""))
             b = b if b else 0.0
 
-            # Update Ev
-            lock_total = lock_pnl
-            if b != 0:
-                # Lock P&L includes baseline b
-                lock_str = f"+{b:.2f}" if b >= 0 else f"{b:.2f}"
-            else:
-                lock_str = "+0"
+            # Preserve existing Lock_P&L string from beta_Equation
+            existing_beta = ticker_data.get("beta_Equation", "")
+            lock_match = re.search(r'Lock_P&L:\s*(.+)', sanitize_number_str(existing_beta))
+            lock_str = lock_match.group(1).strip() if lock_match else "+0"
 
-            # Add surplus to lock string if provided
+            # Update Surplus if provided
             if new_surplus:
                 ticker_data["Surplus_Iv"] = f"Iv_Put: {new_surplus}"
-                surplus_val = parse_surplus_iv(f"Iv_Put: {new_surplus}")
-                lock_total += surplus_val
 
             ticker_data["beta_Equation"] = f" Ev: {new_ev:.2f} + Lock_P&L: {lock_str}"
             net = new_ev + lock_pnl + parse_surplus_iv(ticker_data.get("Surplus_Iv", ""))
@@ -1008,6 +1024,12 @@ def _form_quick_update(data):
             st.success(f"✅ อัพเดท {sel_ticker} สำเร็จ! Net = ${net:,.2f}")
             st.rerun()
 
+
+# ============================================================
+# FUNCTION ALIASES — for Manual page compatibility
+# ============================================================
+chapter_2_volatility_harvest = chapter_2_shannon_process
+chapter_3_convexity_engine = chapter_3_volatility_harvesting
 
 # ============================================================
 # MAIN APP NAVIGATION
