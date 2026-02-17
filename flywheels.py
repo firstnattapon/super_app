@@ -1,7 +1,7 @@
 
 import streamlit as st
 import numpy as np
-import pandas as pd 
+import pandas as pd
 import plotly.graph_objects as go
 from scipy.stats import norm
 import json
@@ -515,21 +515,50 @@ def _render_chain_flow():
     fig_sankey.update_layout(title="Full Cycle: Upside (Harvest) & Downside (Put → Pool CF)", height=400)
     st.plotly_chart(fig_sankey, use_container_width=True)
 
-    # 2. Payoff Chart
+    # 2. Payoff Chart — 4 เส้นเปรียบเทียบ (เวอร์ชันเต็ม)
     st.subheader("Payoff Profile Ref")
-    prices = np.linspace(P0 * 0.2, P0 * 1.5, 100)
-    shannon_val = fix_c * np.log(prices / P0)
+    prices = np.linspace(P0 * 0.2, P0 * 1.5, 200)
+
+    # เส้น 1: Stock Only (Linear) — ถือหุ้นจริง 100%
+    stock_only = fix_c * (prices / P0 - 1)
+
+    # เส้น 2: Base 80/20 (Unhedged) — Shannon log baseline
+    base_80_20 = fix_c * np.log(prices / P0)
+
+    # เส้น 3: Dynamic Shield (+Vol Premium) — Shannon + Volatility Harvest
+    vol_premium = fix_c * 0.5 * (sigma ** 2) * T
+    dynamic_shield = base_80_20 + vol_premium
+
+    # เส้น 4: Shielded 80/20 (+2.0x Puts) — Shannon + Put Hedge (anti-fragile)
     put_val = qty_puts * np.maximum(0, put_strike - prices)
-    combined = shannon_val + put_val
+    shielded_80_20 = dynamic_shield + put_val - cost_hedge  # หักค่า Hedge แล้ว
 
     fig_payoff = go.Figure()
-    fig_payoff.add_trace(go.Scatter(x=prices, y=shannon_val, name="Shannon (Unhedged)"))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=combined, name="Shannon + Put Shield",
-                                    line=dict(width=3, color='green')))
+    fig_payoff.add_trace(go.Scatter(
+        x=prices, y=stock_only, name="Stock Only (Linear)",
+        line=dict(width=1, color='gray', dash='dot')))
+    fig_payoff.add_trace(go.Scatter(
+        x=prices, y=base_80_20, name="เส้น Base 80/20 (Unhedged)",
+        line=dict(width=2, color='#ff9800')))
+    fig_payoff.add_trace(go.Scatter(
+        x=prices, y=dynamic_shield, name="Dynamic Shield (+Vol Premium)",
+        line=dict(width=2, color='#2196f3', dash='dash')))
+    fig_payoff.add_trace(go.Scatter(
+        x=prices, y=shielded_80_20, name="Shielded 80/20 (+2.0x Puts)",
+        line=dict(width=3, color='#00c853')))
+
+    # Crash marker
     fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
                          annotation_text=f"Crash Scenario ({P_crash:.1f})")
-    fig_payoff.update_layout(title="Payoff Profile with Crash Scenario",
-                             xaxis_title="Price", yaxis_title="Value")
+    # Break-even line
+    fig_payoff.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+
+    fig_payoff.update_layout(
+        title="Payoff Profile — 4 เส้นเปรียบเทียบ (Stock vs 80/20 vs Shield vs Anti-Fragile)",
+        xaxis_title="Price ($)", yaxis_title="P&L ($)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=500,
+    )
     st.plotly_chart(fig_payoff, use_container_width=True)
 
     st.info(f"""
