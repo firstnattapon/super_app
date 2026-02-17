@@ -621,9 +621,11 @@ def chapter_chain_system():
     st.header("บทที่ 8: Chain System (ระบบลูกโซ่)")
     st.markdown("""
     **Concept:** เชื่อมกำไรจากทุก Flywheel เข้าเป็น **ลูกโซ่** (Chain) — 
-    กำไรจากขั้นหนึ่งไหลไปเป็น "เชื้อเพลิง" ให้ขั้นถัดไป วนเป็นวงจร
+    กำไรจากขั้นหนึ่งไหลไปเป็น "เชื้อเพลิง" ให้ขั้นถัดไป วนเป็นวงจร **ทั้งขาขึ้น + ขาลง**
     
-    > "กำไร Shannon + Harvest → จ่ายค่า Put Hedge → ส่วนเหลือ Scale Up fix_c → ทุนใหม่ = **Free Risk**"
+    > **ขาขึ้น:** กำไร Shannon + Harvest → จ่ายค่า Put Hedge → Surplus → Scale Up fix_c = **Free Risk**
+    > 
+    > **ขาลง:** Put ระเบิดกำไร → เข้า **Pool CF** → Deploy (เมื่อ Regime กลับ) + Reserve (สำรอง)
     """)
     
     # --- Rollover Equation Explanation ---
@@ -684,9 +686,20 @@ def chapter_chain_system():
         put_strike_pct = st.slider("Put Strike (% of P)", 50, 100, 90, key="ch8_putstrike", help="เช่น 90% ของราคาปัจจุบัน")
         hedge_ratio = st.slider("Hedge Ratio", 0.5, 5.0, 2.0, step=0.1, key="ch8_hedge")
     
+    # --- Pool CF Settings ---
+    st.markdown("#### 🏦 Pool CF Settings (Stage 4)")
+    col_cf1, col_cf2 = st.columns(2)
+    with col_cf1:
+        deploy_ratio = st.slider("Deploy Ratio (จ่ายออกจาก Pool CF)", 0.0, 1.0, 0.70, step=0.05, key="ch8_deploy",
+                                 help="สัดส่วนที่จะดึงออกไป Scale Up เมื่อ Regime กลับ (ที่เหลือเป็น Reserve)")
+    with col_cf2:
+        crash_price_pct = st.slider("Crash Scenario (% ของราคาปัจจุบัน)", 30, 100, 70, step=5, key="ch8_crash",
+                                    help="จำลองราคาตกกี่ % เพื่อดู Put Payoff")
+    
     r = 0.05  # Risk-free rate
     T = 1.0   # 1 Year horizon
     put_strike = Pt * (put_strike_pct / 100.0)
+    P_crash = Pt * (crash_price_pct / 100.0)  # Crash scenario price
     
     # === STAGE 1: Shannon Simple + Harvest ===
     st.subheader("🔗 Stage 1: Shannon Simple + Volatility Harvest")
@@ -760,6 +773,77 @@ def chapter_chain_system():
     
     st.markdown("---")
     
+    # === STAGE 4: Put Payoff → Pool CF (ราคาลง) ===
+    st.subheader("💥 Stage 4: Put Payoff → Pool CF (เมื่อราคาลง)")
+    st.markdown(f"""
+    **Scenario:** ราคาตกจาก **${Pt:.2f}** → **${P_crash:.2f}** ({crash_price_pct}%)  
+    Put Strike = **${put_strike:.2f}** | Hedge Ratio = **{hedge_ratio}x**
+    """)
+    
+    # Calculate Put Payoff at crash price
+    put_payoff_crash = max(put_strike - P_crash, 0)
+    total_put_payoff = qty_puts * put_payoff_crash
+    
+    # Shannon loss at crash (for comparison)
+    shannon_loss = fix_c * np.log(P_crash / P0) if P_crash > 0 else 0
+    
+    # Roll-down cost (optional: cost to re-hedge at lower strike)
+    new_put_strike_crash = P_crash * (put_strike_pct / 100.0)
+    rolldown_premium = black_scholes(P_crash, new_put_strike_crash, T, r, sigma, 'put')
+    rolldown_cost = qty_puts * rolldown_premium
+    
+    # Net into Pool CF
+    pool_cf_gross = total_put_payoff
+    pool_cf_net = pool_cf_gross - rolldown_cost
+    
+    col_s4a, col_s4b, col_s4c = st.columns(3)
+    col_s4a.metric("Put Payoff (ต่อสัญญา)", f"${put_payoff_crash:,.2f}",
+                   delta=f"Strike {put_strike:.1f} - Price {P_crash:.1f}")
+    col_s4b.metric("Total Put Payoff", f"${total_put_payoff:,.2f}",
+                   delta=f"{qty_puts:.1f} Puts × ${put_payoff_crash:.2f}")
+    col_s4c.metric("Shannon Loss (ref)", f"${shannon_loss:,.2f}",
+                   delta="ขาดทุนจาก Baseline", delta_color="inverse")
+    
+    # --- Pool CF Dashboard ---
+    st.subheader("🏦 Pool CF Dashboard")
+    
+    # Pool CF allocation
+    deploy_amount = pool_cf_net * deploy_ratio
+    reserve_amount = pool_cf_net * (1 - deploy_ratio)
+    
+    col_p1, col_p2, col_p3 = st.columns(3)
+    col_p1.metric("Pool CF (Gross)", f"${pool_cf_gross:,.2f}",
+                  delta="Put Payoff ทั้งหมด")
+    col_p2.metric("Re-Hedge Cost", f"${rolldown_cost:,.2f}",
+                  delta=f"Roll-Down Put @ ${new_put_strike_crash:.1f}", delta_color="inverse")
+    col_p3.metric("Pool CF (Net)", f"${pool_cf_net:,.2f}",
+                  delta="Gross - Re-Hedge", delta_color="normal" if pool_cf_net >= 0 else "inverse")
+    
+    # Deploy vs Reserve
+    col_d1, col_d2 = st.columns(2)
+    col_d1.metric(f"🚀 Deploy ({deploy_ratio*100:.0f}%)", f"${deploy_amount:,.2f}",
+                  delta="→ Scale Up fix_c (เมื่อ Regime กลับ)")
+    col_d2.metric(f"🛡️ Reserve ({(1-deploy_ratio)*100:.0f}%)", f"${reserve_amount:,.2f}",
+                  delta="→ สำรองฉุกเฉิน")
+    
+    # Pool CF Rule Box
+    if pool_cf_net > 0:
+        st.success(f"""
+        ✅ **Pool CF พร้อมใช้งาน!**  
+        - กำไร Put: **${total_put_payoff:,.2f}** | หักค่า Re-Hedge: **${rolldown_cost:,.2f}**
+        - **Deploy** ${deploy_amount:,.2f} → รอ VIX กลับต่ำ → Scale Up fix_c  
+        - **Reserve** ${reserve_amount:,.2f} → สำรองไว้กันเหตุไม่คาด
+        
+        > **Rule:** Put กำไร → เข้า Pool CF ก่อนเสมอ → **ไม่ Scale Up ทันที** ขณะตลาดยัง Crash
+        """)
+    else:
+        st.warning(f"""
+        ⚠️ **Put Payoff ไม่พอจ่าย Re-Hedge!** ราคายังไม่ลงพอให้ Put ทำกำไร
+        - Put Payoff: ${total_put_payoff:,.2f} | Re-Hedge Cost: ${rolldown_cost:,.2f}
+        """)
+    
+    st.markdown("---")
+    
     # === ROLLOVER HISTORY TABLE ===
     st.subheader("📋 Rollover History (ประวัติการ Roll)")
     
@@ -820,10 +904,11 @@ def chapter_chain_system():
     
     st.markdown("---")
     
-    # === SANKEY DIAGRAM ===
-    st.subheader("🌊 Profit Flow (Sankey Diagram)")
+    # === SANKEY DIAGRAM (Full Cycle: ขาขึ้น + ขาลง) ===
+    st.subheader("🌊 Profit Flow — Full Cycle (Sankey Diagram)")
     
-    # Sankey nodes: Shannon, Harvest, Total→Hedge Cost, →Surplus, →Scale Up
+    # Nodes: 0-Shannon, 1-Harvest, 2-Total, 3-HedgeCost, 4-Surplus, 5-ScaleUp,
+    #         6-PutPayoff, 7-PoolCF, 8-Deploy, 9-Reserve
     sankey_labels = [
         f"Shannon Profit\n${shannon_profit:,.0f}",       # 0
         f"Harvest Profit\n${harvest_profit:,.0f}",        # 1
@@ -831,8 +916,13 @@ def chapter_chain_system():
         f"Hedge Cost\n${total_hedge_cost:,.0f}",          # 3
         f"Surplus\n${max(surplus, 0):,.0f}",              # 4
         f"Scale Up fix_c\n${new_fix_c:,.0f}",             # 5
+        f"Put Payoff\n${total_put_payoff:,.0f}",          # 6
+        f"Pool CF\n${max(pool_cf_net, 0):,.0f}",          # 7
+        f"Deploy ({deploy_ratio*100:.0f}%)\n${max(deploy_amount,0):,.0f}",  # 8
+        f"Reserve ({(1-deploy_ratio)*100:.0f}%)\n${max(reserve_amount,0):,.0f}",  # 9
     ]
     
+    # Links: ขาขึ้น (Stage 1→2→3,4→5) + ขาลง (6→7→8,9)
     sankey_source = [0, 1, 2, 2]
     sankey_target = [2, 2, 3, 4]
     sankey_value = [
@@ -852,7 +942,30 @@ def chapter_chain_system():
         sankey_source.append(4)
         sankey_target.append(5)
         sankey_value.append(surplus)
-        sankey_colors.append('rgba(171, 99, 250, 0.6)')  # Surplus → Scale Up
+        sankey_colors.append('rgba(171, 99, 250, 0.6)')
+    
+    # Stage 4: Put Payoff → Pool CF → Deploy + Reserve
+    if total_put_payoff > 0:
+        # Put Payoff → Pool CF
+        sankey_source.append(6)
+        sankey_target.append(7)
+        sankey_value.append(max(pool_cf_net, 0.01))
+        sankey_colors.append('rgba(255, 65, 54, 0.6)')
+        
+        if pool_cf_net > 0:
+            # Pool CF → Deploy
+            sankey_source.append(7)
+            sankey_target.append(8)
+            sankey_value.append(max(deploy_amount, 0.01))
+            sankey_colors.append('rgba(25, 211, 243, 0.6)')
+            # Pool CF → Reserve
+            sankey_source.append(7)
+            sankey_target.append(9)
+            sankey_value.append(max(reserve_amount, 0.01))
+            sankey_colors.append('rgba(180, 180, 180, 0.5)')
+    
+    node_colors = ['#636EFA', '#00CC96', '#FFA15A', '#EF553B', '#AB63FA', '#19D3F3',
+                   '#FF4136', '#FF851B', '#2ECC40', '#AAAAAA']
     
     fig_sankey = go.Figure(data=[go.Sankey(
         node=dict(
@@ -860,7 +973,7 @@ def chapter_chain_system():
             thickness=25,
             line=dict(color="white", width=1),
             label=sankey_labels,
-            color=['#636EFA', '#00CC96', '#FFA15A', '#EF553B', '#AB63FA', '#19D3F3']
+            color=node_colors
         ),
         link=dict(
             source=sankey_source,
@@ -870,14 +983,14 @@ def chapter_chain_system():
         )
     )])
     fig_sankey.update_layout(
-        title="Chain System: Profit Flow",
-        font_size=14,
-        height=400
+        title="Chain System: Full Cycle Profit Flow (ขาขึ้น + ขาลง)",
+        font_size=13,
+        height=500
     )
     st.plotly_chart(fig_sankey, use_container_width=True)
     
-    # === WATERFALL CHART ===
-    st.subheader("📊 Waterfall Chart (สะสมกำไร)")
+    # === WATERFALL CHART (Full Cycle) ===
+    st.subheader("📊 Waterfall Chart — Full Cycle (ขาขึ้น + ขาลง)")
     
     waterfall_labels = [
         "Shannon Profit",
@@ -885,18 +998,29 @@ def chapter_chain_system():
         "Total Stage 1",
         "Hedge Cost",
         "Surplus (Free Risk)",
-        "New fix_c"
+        "New fix_c",
+        "───── ขาลง ─────",
+        "Put Payoff (Crash)",
+        "Re-Hedge Cost",
+        "Pool CF Net"
     ]
-    waterfall_measures = ["relative", "relative", "total", "relative", "total", "total"]
+    waterfall_measures = [
+        "relative", "relative", "total", "relative", "total", "total",
+        "relative", "relative", "relative", "total"
+    ]
     waterfall_values = [
         shannon_profit, 
         harvest_profit, 
         total_stage1,
         -total_hedge_cost, 
         surplus,
-        new_fix_c
+        new_fix_c,
+        0,
+        total_put_payoff,
+        -rolldown_cost,
+        pool_cf_net
     ]
-    waterfall_text = [f"${v:,.2f}" for v in waterfall_values]
+    waterfall_text = [f"${v:,.2f}" if v != 0 else "▼" for v in waterfall_values]
     
     fig_waterfall = go.Figure(go.Waterfall(
         name="Chain", 
@@ -912,9 +1036,9 @@ def chapter_chain_system():
         totals=dict(marker_color='#636EFA')
     ))
     fig_waterfall.update_layout(
-        title="Chain System: Profit Waterfall",
+        title="Chain System: Full Cycle Waterfall (ขาขึ้น + ขาลง)",
         yaxis_title="Value ($)",
-        height=450,
+        height=500,
         showlegend=False
     )
     st.plotly_chart(fig_waterfall, use_container_width=True)
@@ -961,9 +1085,12 @@ def chapter_chain_system():
                          annotation_text=f"Rollover Point (P={Pt:.1f})")
     fig_payoff.add_vline(x=P0, line_width=1, line_dash="dot", line_color="gray",
                          annotation_text=f"Start (P₀={P0:.1f})")
+    # Mark crash scenario price
+    fig_payoff.add_vline(x=P_crash, line_width=2, line_dash="dash", line_color="red",
+                         annotation_text=f"Crash ({crash_price_pct}%) P={P_crash:.1f}")
     
     fig_payoff.update_layout(
-        title="Chain System: Continuous Baseline + Shield",
+        title="Chain System: Continuous Baseline + Shield + Crash Scenario",
         xaxis_title="Stock Price ($)",
         yaxis_title="Portfolio Value ($)",
         hovermode="x unified",
@@ -971,12 +1098,20 @@ def chapter_chain_system():
     )
     st.plotly_chart(fig_payoff, use_container_width=True)
     
-    st.info("""
-    **Chain System Analysis:**
+    st.info(f"""
+    **Chain System — Full Cycle Analysis:**
+    
+    **ขาขึ้น (Stage 1→3):**
     1. **เส้นสีม่วง (Shannon เดิม):** Baseline เดิมก่อน Scale Up
-    2. **เส้นสีน้ำเงิน (After Rollover):** Baseline ใหม่หลัง Rollover — **ต่อเนื่อง** ไม่กระโดด ณ จุด Rollover
-    3. **เส้นสีเขียว (Chained + Shield):** เมื่อเติม Put Hedge เข้าไป → ขาลงมี Anti-Fragile Protection
-    4. **ลูกโซ่ทำงานอย่างไร:** กำไรจาก Stage 1 → จ่ายค่า Hedge → ส่วนเหลือ Scale Up fix_c → **Free Risk** → วนรอบใหม่ด้วยทุนที่ใหญ่ขึ้น
+    2. **เส้นสีน้ำเงิน (After Rollover):** Baseline ใหม่หลัง Rollover — **ต่อเนื่อง** ไม่กระโดด
+    3. **เส้นสีเขียว (Chained + Shield):** เมื่อเติม Put Hedge → ขาลงมี Anti-Fragile
+    
+    **ขาลง (Stage 4):**
+    4. **Put ระเบิดกำไร** ${total_put_payoff:,.2f} → เข้า **Pool CF** ${pool_cf_net:,.2f}
+    5. **Deploy** {deploy_ratio*100:.0f}% (${deploy_amount:,.2f}) เมื่อ Regime กลับ → **Scale Up**
+    6. **Reserve** {(1-deploy_ratio)*100:.0f}% (${reserve_amount:,.2f}) → สำรองฉุกเฉิน
+    
+    > **หลักการ:** กำไร Put → Pool CF → **ห้าม Scale Up ทันทีตอนตลาด Crash** → รอ VIX กลับ → Deploy
     """)
 
 
