@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import norm
 import json
-import os 
-import re 
+import os
+import re
 
 # ============================================================
 # UTILITIES
