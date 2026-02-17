@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 from scipy.stats import norm
 import json
 import os
-import re 
+import re
 
 # ============================================================
 # UTILITIES
@@ -72,7 +72,7 @@ def parse_final(final_str):
     """Parse 'Final' field → (t, c, b).  e.g. '12, 4000, -519.45' → (12.0, 4000.0, -519.45)"""
     if not final_str:
         return None, None, None
-    final_str = sanitize_number_str(final_str)
+    # Split on commas first (delimiter), then sanitize each part for Unicode minus
     parts = [sanitize_number_str(p) for p in final_str.split(",")]
     try:
         t = float(parts[0]) if len(parts) > 0 and parts[0] else None
@@ -196,8 +196,8 @@ def build_portfolio_df(data):
         surplus_iv = parse_surplus_iv(item.get("Surplus_Iv", ""))
         rows.append({
             "Ticker": ticker,
-            "Price (t)": t,
-            "Fix_C": c,
+            "Price (t)": t if t is not None else 0.0,
+            "Fix_C": c if c is not None else 0.0,
             "Baseline (b)": b if b else 0.0,
             "Ev (Extrinsic)": ev,
             "Lock P&L": lock_pnl,
