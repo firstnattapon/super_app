@@ -8,7 +8,8 @@ import re
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
-    run_chain_round, commit_round, deploy_pool_cf,
+    load_trading_data, save_trading_data, get_tickers,
+    run_chain_round, commit_round, allocate_pool_funds,
     parse_final, parse_beta_numbers, parse_beta_net,
     parse_surplus_iv, get_rollover_history, build_portfolio_df,
     black_scholes, sanitize_number_str,
@@ -261,23 +262,51 @@ def _render_engine_tab(data):
         st.divider()
 
         if pool_cf > 0 and tickers_list:
-            st.markdown("##### 🚀 Deploy → Ticker")
+            st.markdown("##### 🏦 Capital Allocation (เบิกจ่ายกองกลาง)")
             ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
+            
             with st.form("deploy_pool_form", clear_on_submit=True):
-                deploy_ticker = st.selectbox("Deploy to", ticker_names_deploy, key="deploy_ticker")
-                deploy_amount = st.number_input("Amount ($)", min_value=0.0, max_value=float(pool_cf),
-                                                 value=0.0, step=100.0, key="deploy_amt")
-                if st.form_submit_button("🚀 Deploy", type="primary"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
+                with c2:
+                    action_type = st.selectbox("Action / Objective", [
+                        "📈 Scale Up (เพิ่มทุน fix_c)",
+                        "🛡️ Buy Puts (ซื้อประกัน)",
+                        "🎯 Buy Calls (เพิ่มของ/Speculate)",
+                        "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)"
+                    ], key="deploy_action")
+                
+                amount_c1, amount_c2 = st.columns(2)
+                with amount_c1:
+                    deploy_amount = st.number_input("Amount ($)", min_value=0.0, max_value=float(pool_cf),
+                                                     value=0.0, step=100.0, key="deploy_amt")
+                with amount_c2:
+                    note = st.text_input("Note (Optional)", placeholder="e.g. Add hedge for earning")
+
+                if st.form_submit_button("🚀 Execute Allocation", type="primary"):
                     if deploy_amount > 0:
+                        # Map friendly names to internal keys
+                        action_map = {
+                            "📈 Scale Up (เพิ่มทุน fix_c)": "Scale Up",
+                            "🛡️ Buy Puts (ซื้อประกัน)": "Buy Puts",
+                            "🎯 Buy Calls (เพิ่มของ/Speculate)": "Buy Calls",
+                            "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)": "Pay Ev"
+                        }
+                        internal_action = action_map[action_type]
+                        
                         d_idx = ticker_names_deploy.index(deploy_ticker)
-                        data, success = deploy_pool_cf(data, d_idx, deploy_amount)
+                        # Call the new function (imported or local if refactored)
+                        from flywheels import allocate_pool_funds
+                        data, success = allocate_pool_funds(data, d_idx, deploy_amount, internal_action, note)
+                        
                         if success:
-                            st.success(f"✅ Deployed ${deploy_amount:,.2f} to {deploy_ticker}")
+                            st.success(f"✅ Allocated ${deploy_amount:,.2f} to {deploy_ticker} ({internal_action})")
                             st.rerun()
                         else:
-                            st.error("❌ Insufficient Pool CF balance")
+                            st.error("❌ Transaction Failed (Insufficient Funds?)")
         elif pool_cf <= 0:
-            st.info("Pool CF ว่าง — ยังไม่มีเงินสำหรับ Deploy")
+            st.info("Pool CF ว่าง — ยังไม่มีเงินสำหรับ Allocation")
 
     # ── Chain History — full width below columns ──
     rounds = t_data.get("rounds", []) if tickers_list else []
