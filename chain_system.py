@@ -1,7 +1,7 @@
 
 import streamlit as st
 import numpy as np
-import pandas as pd  
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import re
@@ -14,7 +14,7 @@ from flywheels import (
     parse_surplus_iv, get_rollover_history, build_portfolio_df,
     black_scholes, sanitize_number_str,
 )
- 
+
 
 # ============================================================
 # CHAPTER 8: CHAIN SYSTEM (ระบบลูกโซ่) — FINAL PRODUCT
@@ -169,7 +169,7 @@ def _render_engine_tab(data):
     with st.container(border=True):
         top1, top2, top3, top4 = st.columns(4)
         top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
-        top2.metric("🛡️ Pool LEAPS", f"${ev_reserve:,.2f}")
+        top2.metric("🛡️ Pool EV LEAPS", f"${ev_reserve:,.2f}")
         top3.metric("Tickers", str(len(tickers_list)))
         total_rounds = sum(len(t.get("rounds", [])) for t in tickers_list)
         top4.metric("Total Rounds", str(total_rounds))
@@ -251,9 +251,9 @@ def _render_engine_tab(data):
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-                del st.session_state["_pending_round"]
                 del st.session_state["_pending_ticker_idx"]
                 del st.session_state["_pending_ticker_name"]
+                del st.session_state["_pending_round"]
                 st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
                 st.rerun()
 
@@ -392,9 +392,9 @@ def _render_engine_tab(data):
         
         st.divider()
 
-        # ── 3. Pool LEAPS (Balance & Expenses) ──
-        with st.expander("🛡️ Manage Pool LEAPS (Income & Expenses)"):
-            st.caption("จัดการกองทุน LEAPS: รับเงินจาก Pool CF หรือ จ่ายค่า LEAPS")
+        # ── 3. Pool EV LEAPS (Balance & Expenses) ──
+        with st.expander("🛡️ Manage Pool EV LEAPS (Income & Expenses)"):
+            st.caption("จัดการกองทุน EV LEAPS: รับเงินจาก Pool CF หรือ จ่ายค่า LEAPS")
             
             # Allocation (Income)
             st.markdown("##### 📥 Allocate (Income from Pool CF)")
@@ -402,12 +402,12 @@ def _render_engine_tab(data):
             with col_a:
                 alloc_amt = st.number_input("Allocate Amount ($)", min_value=0.0, max_value=float(pool_cf), step=100.0, key="alloc_leaps")
             with col_b:
-                if st.button("📥 Allocate to Pool LEAPS"):
+                if st.button("📥 Allocate to Pool EV LEAPS"):
                     if alloc_amt > 0 and pool_cf >= alloc_amt:
                         data["global_pool_cf"] -= alloc_amt
                         data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + alloc_amt
                         save_trading_data(data)
-                        st.success(f"Allocated ${alloc_amt:,.2f} to Pool LEAPS")
+                        st.success(f"Allocated ${alloc_amt:,.2f} to Pool EV LEAPS")
                         st.rerun()
             
             st.divider()
@@ -425,7 +425,7 @@ def _render_engine_tab(data):
                         st.success(f"Paid LEAPS Cost ${pay_leaps_amt:,.2f} from Pool")
                         st.rerun()
             
-            st.markdown(f"**Current Pool LEAPS Balance:** `${ev_reserve:,.2f}`")
+            st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
 
     # ==============================
     # BOTTOM SECTION — Consolidated History
@@ -459,33 +459,17 @@ def _render_consolidated_history(t_data):
     for i, rd in enumerate(rounds):
         hedge = rd.get("hedge_cost", 0.0)
         
-        # ── Calculate Real Ev Burn (Time Value Only) ──
-        # Intrinsic = Max(0, Strike - Price) * Qty
-        p_old = rd.get("p_old", 0)
-        p_new = rd.get("p_new", 0)
-        c_before = rd.get("c_before", 0)
-        h_ratio = rd.get("hedge_ratio", 2.0)
+        # ── Refactored: Hedge Cost (Total Premium) (No more Ev Split) ──
+        # Intrinsic no longer calculated for table display to simplify cash flow view.
         
-        # Estimate Strike if not saved (Standard 0.9x)
-        strike = rd.get("strike_price", p_old * 0.9 if p_old > 0 else 0)
-        qty = (c_before / p_old * h_ratio) if p_old > 0 else 0
-        
-        intrinsic_val = max(0, strike - p_new) * qty
-        ev_burn = max(0, hedge - intrinsic_val) # Pure Time Value Burn
-
-        # Check action type
-        ev_impact = 0.0
-        ev_label = "—"
+        hedge_cost_label = "—"
         
         if "Pay Ev" in rd.get("note", "") or rd.get("ev_change", 0) < 0:
              payment = abs(rd.get("ev_change", 0))
-             ev_impact = -payment
-             ev_label = f"🟢 Paid -${payment:,.0f}"
+             hedge_cost_label = f"🟢 Paid -${payment:,.0f}"
         elif hedge > 0:
-             ev_impact = ev_burn
-             ev_label = f"🔴 Burn -${ev_burn:,.0f}"
-             if intrinsic_val > 0:
-                 ev_label += f" (In: ${intrinsic_val:,.0f})"
+             # Just show total cost (cash outflow)
+             hedge_cost_label = f"🔴 Cost -${hedge:,.0f}"
 
         action_short = rd.get("action", "Round")
         if rd.get("scale_up", 0) > 0:
@@ -499,7 +483,7 @@ def _render_consolidated_history(t_data):
             "Price": f"${rd.get('p_new', 0):,.2f}",
             "fix_c": f"${rd.get('c_after', 0):,.0f}",
             "b": f"${rd.get('b_after', 0):,.2f}",
-            "Ev Impact": ev_label,
+            "Hedge Cost": hedge_cost_label,
             "Net Result": f"${rd.get('surplus', 0):,.2f}",
             "Note": rd.get("note", "")
         })
@@ -513,7 +497,7 @@ def _render_consolidated_history(t_data):
         use_container_width=True, 
         hide_index=True,
         column_config={
-            "Ev Impact": st.column_config.TextColumn("Ev Impact", width="medium", help="Red = Burn (Time Value), Green = Pay/Recover"),
+            "Hedge Cost": st.column_config.TextColumn("Hedge Cost", width="medium", help="Red = Premium Paid (Cost), Green = Pay/Recover"),
             "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost")
         }
     )
