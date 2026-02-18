@@ -9,7 +9,7 @@ import re
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
     run_chain_round, commit_round, deploy_pool_cf,
-    parse_final, parse_beta_numbers, parse_beta_net, 
+    parse_final, parse_beta_numbers, parse_beta_net,
     parse_surplus_iv, get_rollover_history, build_portfolio_df,
     black_scholes, sanitize_number_str,
 )
@@ -224,11 +224,14 @@ def _render_engine_tab(data):
                        delta="Scale Up!" if rd['surplus'] > 0 else "Deficit",
                        delta_color="normal" if rd['surplus'] > 0 else "inverse")
 
-            p5, p6, p7 = st.columns(3)
+            p5, p6, p7, p8 = st.columns(4)
             p5.metric("fix_c After", f"${rd['c_after']:,.2f}",
                        delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
             p6.metric("Baseline After", f"${rd['b_after']:,.2f}")
             p7.metric("Price After (re-centered)", f"${rd['p_new']:,.2f}")
+            p8.metric("Surplus (Free Risk)", f"${rd['surplus']:,.2f}",
+                       delta="Scale Up" if rd['surplus'] > 0 else "Deficit",
+                       delta_color="normal" if rd['surplus'] > 0 else "inverse")
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
