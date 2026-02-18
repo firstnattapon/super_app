@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import re
-from datetime import datetime
+from datetime import datetime 
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
