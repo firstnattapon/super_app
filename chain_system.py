@@ -16,7 +16,6 @@ from flywheels import (
 )
 
 
-
 # ============================================================
 # HELPER: Treasury Logging
 # ============================================================
@@ -362,10 +361,10 @@ def _render_engine_tab(data):
 
         st.divider()
 
-        # ── 2. Manual Round Injection (Deployment) ──
+        # ── 2. Deploy Capital (Ticker Injection) ──
         if tickers_list:
-            st.markdown("##### 🚀 Manual Round Injection (Deploy)")
-            st.caption("ยิง `fix_c` หรือจ่าย Ev เข้า Ticker โดยตรง")
+            st.markdown("##### 🚀 Deploy Capital (Ticker Injection)")
+            st.caption("อัดฉีดเงินจาก Pool CF เข้า Ticker (ซื้อของ / จ่ายหนี้ / ขยายพอร์ต)")
 
             ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
             deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
@@ -377,23 +376,29 @@ def _render_engine_tab(data):
             cur_t = state_deploy.get("price", 0)
             cur_b = state_deploy.get("baseline", 0)
             cur_ev_debt = state_deploy.get("cumulative_ev", 0.0)
+            
+            # Inherit stats to keep charts smooth
+            cur_sigma = t_data_deploy.get("rounds", [{}])[-1].get("sigma", 0.5) if t_data_deploy.get("rounds") else 0.5
+            cur_hr = t_data_deploy.get("rounds", [{}])[-1].get("hedge_ratio", 2.0) if t_data_deploy.get("rounds") else 2.0
 
             with st.form("deploy_round_form", clear_on_submit=False):
-                action_type = st.selectbox("Action", [
-                    "📈 Scale Up (เพิ่มทุน fix_c)",
-                    "🛡️ Buy Puts (ซื้อประกัน)",
-                    "🎯 Buy Calls (เพิ่มของ/Speculate)",
-                    "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)"
-                ], key="deploy_action_round")
-
-                d_amt = st.number_input(
-                    f"Deploy Amount ($)", 
-                    min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
-                    value=0.0, step=100.0, key="deploy_amt_round"
-                )
-                d_note = st.text_input("Note", value="", placeholder="Reason...")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    action_type = st.selectbox("Objective", [
+                        "📈 Scale Up (เพิ่มทุน fix_c)",
+                        "🛡️ Buy Puts (ซื้อประกันเพิ่ม)",
+                        "🎯 Buy Calls (เก็งกำไร)",
+                        "⏳ Pay Ev (จ่ายหนี้ให้ Ticker)"
+                    ], key="deploy_action_round")
+                with col_d2:
+                    d_amt = st.number_input(
+                        f"Amount ($)", 
+                        min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
+                        value=0.0, step=100.0, key="deploy_amt_round"
+                    )
+                d_note = st.text_input("Note", value="", placeholder="Reason for deployment...")
                 
-                submitted_deploy = st.form_submit_button("🔍 Preview Injection")
+                submitted_deploy = st.form_submit_button("🔍 Preview Deployment")
             
             if submitted_deploy and d_amt > 0:
                 mock_scale_up = 0.0
@@ -431,8 +436,8 @@ def _render_engine_tab(data):
                     "scale_up": mock_scale_up,
                     "b_before": cur_b,
                     "b_after": cur_b,
-                    "hedge_ratio": 0.0,
-                    "sigma": 0.0,
+                    "hedge_ratio": cur_hr,  # Inherit for chart continuity
+                    "sigma": cur_sigma,     # Inherit for chart continuity
                     "note": final_note,
                     "ev_change": mock_ev_change
                 }
@@ -452,7 +457,7 @@ def _render_engine_tab(data):
                 if "Pay Ev" in p_type:
                     dc3.metric("Burn Rate (Ev)", f"${cur_ev_debt:,.2f} → ${max(0, cur_ev_debt - st.session_state['_pending_injection_amt']):,.2f}", delta="Reduced Debt")
                 
-                if st.button("🚀 Confirm Transaction", type="primary", key="confirm_deploy"):
+                if st.button("🚀 Confirm Deployment", type="primary", key="confirm_deploy"):
                     amt = st.session_state["_pending_injection_amt"]
                     if data["global_pool_cf"] >= amt:
                         data["global_pool_cf"] -= amt
@@ -495,7 +500,6 @@ def _render_engine_tab(data):
             
             st.divider()
             
-            # Expenses (Pay LEAPS)
             # Expenses (Pay LEAPS)
             st.markdown("##### 📤 Pay LEAPS (Expense/Adjustment)")
             col_c, col_d = st.columns(2)
@@ -713,6 +717,9 @@ def _render_payoff_profile_tab(data):
             p_new = rd.get("p_new", 0)
             c_before = rd.get("c_before", 0)
             h_ratio = rd.get("hedge_ratio", 2.0)
+            # Handle potential None or 0 hedge_ratio
+            if h_ratio is None: h_ratio = 2.0
+
             strike = rd.get("strike_price", p_old * 0.9 if p_old > 0 else 0)
             qty = (c_before / p_old * h_ratio) if p_old > 0 else 0
             
@@ -885,26 +892,26 @@ def _render_manage_data(data):
                             "current_state": {
                                 "price": init_price,
                                 "fix_c": init_c,
-                                "baseline": 0.0,
+                                "baseline": init_price,
                                 "cumulative_ev": 0.0
                             },
-                            "rounds": []
+                            "rounds": [],
+                            "beta_momory": "0.0, 0.0, 0.0"
                         }
+                        if "tickers" not in data:
+                             data["tickers"] = []
                         data["tickers"].append(new_entry)
                         save_trading_data(data)
-                        st.success(f"Added {new_ticker}!")
+                        st.success(f"Added {new_ticker}")
                         st.rerun()
 
-    st.divider()
-    
-    # Manage Existing
-    tickers = get_tickers(data)
-    if tickers:
-        st.write("##### รายชื่อ Tickers")
-        for i, t in enumerate(tickers):
-            with st.expander(f"{t['ticker']}"):
-                if st.button(f"🗑️ ลบ {t['ticker']}", key=f"del_{i}"):
-                    data["tickers"].pop(i)
-                    save_trading_data(data)
-                    st.success(f"Deleted {t['ticker']}")
-                    st.rerun()
+    # Clear Data
+    with st.expander("⚠️ ลบข้อมูลทั้งหมด (Reset)", expanded=False):
+        if st.button("DELETE ALL DATA", type="primary"):
+            data["tickers"] = []
+            data["global_pool_cf"] = 0.0
+            data["global_ev_reserve"] = 0.0
+            data["treasury_history"] = []
+            save_trading_data(data)
+            st.warning("All data cleared!")
+            st.rerun()
