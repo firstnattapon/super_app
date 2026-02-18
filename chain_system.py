@@ -439,6 +439,21 @@ def _render_consolidated_history(t_data):
 
     for i, rd in enumerate(rounds):
         hedge = rd.get("hedge_cost", 0.0)
+        
+        # ── Calculate Real Ev Burn (Time Value Only) ──
+        # Intrinsic = Max(0, Strike - Price) * Qty
+        p_old = rd.get("p_old", 0)
+        p_new = rd.get("p_new", 0)
+        c_before = rd.get("c_before", 0)
+        h_ratio = rd.get("hedge_ratio", 2.0)
+        
+        # Estimate Strike if not saved (Standard 0.9x)
+        strike = rd.get("strike_price", p_old * 0.9 if p_old > 0 else 0)
+        qty = (c_before / p_old * h_ratio) if p_old > 0 else 0
+        
+        intrinsic_val = max(0, strike - p_new) * qty
+        ev_burn = max(0, hedge - intrinsic_val) # Pure Time Value Burn
+
         # Check action type
         ev_impact = 0.0
         ev_label = "—"
@@ -448,8 +463,10 @@ def _render_consolidated_history(t_data):
              ev_impact = -payment
              ev_label = f"🟢 Paid -${payment:,.0f}"
         elif hedge > 0:
-             ev_impact = hedge
-             ev_label = f"🔴 Burn -${hedge:,.0f}"
+             ev_impact = ev_burn
+             ev_label = f"🔴 Burn -${ev_burn:,.0f}"
+             if intrinsic_val > 0:
+                 ev_label += f" (In: ${intrinsic_val:,.0f})"
 
         action_short = rd.get("action", "Round")
         if rd.get("scale_up", 0) > 0:
@@ -477,15 +494,12 @@ def _render_consolidated_history(t_data):
         use_container_width=True, 
         hide_index=True,
         column_config={
-            "Ev Impact": st.column_config.TextColumn("Ev Impact", help="Red = Burn, Green = Pay/Recover"),
+            "Ev Impact": st.column_config.TextColumn("Ev Impact", width="medium", help="Red = Burn (Time Value), Green = Pay/Recover"),
             "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost")
         }
     )
 
 
-# ----------------------------------------------------------
-# TAB: Chain Flow (Simulation Reference)
-# ----------------------------------------------------------
 # ----------------------------------------------------------
 # TAB: Payoff Profile 🔗 Run Chain Round
 # ----------------------------------------------------------
@@ -530,8 +544,20 @@ def _render_payoff_profile_tab(data):
             harvest = rd.get("harvest_profit", 0)
             total_income = shannon + harvest
             
+            # ── Calculate Ev Burn (Logic Match) ──
+            p_old = rd.get("p_old", 0)
+            p_new = rd.get("p_new", 0)
+            c_before = rd.get("c_before", 0)
+            h_ratio = rd.get("hedge_ratio", 2.0)
+            strike = rd.get("strike_price", p_old * 0.9 if p_old > 0 else 0)
+            qty = (c_before / p_old * h_ratio) if p_old > 0 else 0
+            
+            intrinsic_val = max(0, strike - p_new) * qty
+            ev_burn = max(0, hedge - intrinsic_val)
+
             if hedge > 0:
-                 cum_ev_burn += hedge
+                 cum_ev_burn += ev_burn  # Track ONLY extrinsic burn
+            
             if total_income > 0:
                 cum_profit += total_income
                 
@@ -718,3 +744,4 @@ def _render_manage_data(data):
                     save_trading_data(data)
                     st.success(f"Deleted {t['ticker']}")
                     st.rerun()
+ 
