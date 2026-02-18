@@ -469,21 +469,22 @@ def _render_engine_tab(data):
             st.divider()
             
             # Expenses (Pay LEAPS)
-            st.markdown("##### 📤 Pay LEAPS (Expense)")
+            # Expenses (Pay LEAPS)
+            st.markdown("##### 📤 Pay LEAPS (Expense/Adjustment)")
             col_c, col_d = st.columns(2)
             with col_c:
-                # Allow negative values (remove min/max), and allow pool to go negative
-                pay_leaps_amt = st.number_input("LEAPS Cost ($)", value=0.0, step=100.0, key="pay_leaps_cost")
+                # Allow negative values. Negative = Expense/Debt. Positive = Refund/Income.
+                pay_leaps_amt = st.number_input("LEAPS Net Flow ($)", value=0.0, step=100.0, key="pay_leaps_cost", help="Negative (-) = Expense/Cost. Positive (+) = Refund/Deposit.")
             with col_d:
-                if st.button("📤 Pay LEAPS (Deduct)"):
-                    # Simply subtract the amount (allow negative pool result)
-                    data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) - pay_leaps_amt
+                if st.button("💾 Record Flow"):
+                    # Additive logic: Balance += Input
+                    data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + pay_leaps_amt
                     save_trading_data(data)
                     
-                    if pay_leaps_amt >= 0:
-                        st.success(f"Paid LEAPS Cost ${pay_leaps_amt:,.2f} from Pool")
+                    if pay_leaps_amt < 0:
+                        st.success(f"Recorded Expense of ${abs(pay_leaps_amt):,.2f} (Balance Reduced)")
                     else:
-                        st.success(f"Refunded ${abs(pay_leaps_amt):,.2f} to Pool (Negative Expense)")
+                        st.success(f"Recorded Income/Refund of ${pay_leaps_amt:,.2f} (Balance Increased)")
                     st.rerun()
             
             st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
