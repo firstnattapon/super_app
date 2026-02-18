@@ -231,25 +231,65 @@ def _render_engine_tab(data):
         if "_pending_round" in st.session_state and st.session_state.get("_pending_ticker_name") == selected:
             rd = st.session_state["_pending_round"]
             st.markdown("---")
-            st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
+            # st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
 
             p1, p2, p3, p4 = st.columns(4)
             p1.metric("Shannon Profit", f"${rd['shannon_profit']:,.2f}", delta=f"P: {rd['p_old']} → {rd['p_new']}")
             p2.metric("Harvest Profit", f"${rd['harvest_profit']:,.2f}", delta=f"σ={rd['sigma']}")
             p3.metric("Hedge Cost", f"${rd['hedge_cost']:,.2f}", delta=f"-{rd['hedge_ratio']}x Put", delta_color="inverse")
-            p4.metric("Surplus (Free Risk)", f"${rd['surplus']:,.2f}",
-                       delta="Scale Up!" if rd['surplus'] > 0 else "Deficit",
-                       delta_color="normal" if rd['surplus'] > 0 else "inverse")
+            
+            # Allow editing Surplus
+            new_surplus = p4.number_input(
+                "Surplus (Free Risk)", 
+                value=float(rd['surplus']), 
+                step=10.0, 
+                format="%.2f",
+                key="preview_surplus"
+            )
 
-            st.caption("ผลลัพธ์ของ Round นี้:")
+            st.caption("ผลลัพธ์ของ Round นี้ (แก้ไขได้ก่อน Commit):")
             p5, p6, p7, p8 = st.columns(4)
-            p5.metric("fix_c", f"${rd['c_before']:,.0f} > ${rd['c_after']:,.0f}",
-                       delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
-            p6.metric("Price", f"${rd['p_old']:,.2f} > ${rd['p_new']:,.2f}")
-            p7.metric("Baseline", f"${rd['b_before']:,.2f} > ${rd['b_after']:,.2f}")
+            
+            # Editable fix_c
+            new_c_after = p5.number_input(
+                "New fix_c", 
+                value=float(rd['c_after']), 
+                step=10.0, 
+                format="%.0f",
+                key="preview_c_after"
+            )
+            # Editable Price
+            new_p_new = p6.number_input(
+                "New Price", 
+                value=float(rd['p_new']), 
+                step=0.1, 
+                format="%.2f",
+                key="preview_p_new"
+            )
+            # Editable Baseline
+            new_b_after = p7.number_input(
+                "New Baseline", 
+                value=float(rd['b_after']), 
+                step=0.1, 
+                format="%.2f",
+                key="preview_b_after"
+            )
+            
             p8.empty()
+            # Show diffs for reference
+            p5.caption(f"Was: ${rd['c_before']:,.0f} > ${rd['c_after']:,.0f}")
+            p6.caption(f"Was: ${rd['p_old']:,.2f} > ${rd['p_new']:,.2f}")
+            p7.caption(f"Was: ${rd['b_before']:,.2f} > ${rd['b_after']:,.2f}")
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
+                # Update rd with edited values
+                rd['surplus'] = new_surplus
+                rd['c_after'] = new_c_after
+                rd['p_new'] = new_p_new
+                rd['b_after'] = new_b_after
+                # Recalculate scale_up roughly based on change in c (optional but good for consistency)
+                rd['scale_up'] = rd['c_after'] - rd['c_before']
+
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
                 del st.session_state["_pending_ticker_idx"]
                 del st.session_state["_pending_ticker_name"]
