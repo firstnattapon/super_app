@@ -9,7 +9,6 @@ from datetime import datetime
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
-    load_trading_data, save_trading_data, get_tickers,
     run_chain_round, commit_round, allocate_pool_funds,
     parse_final, parse_beta_numbers, parse_beta_net,
     parse_surplus_iv, get_rollover_history, build_portfolio_df,
@@ -243,7 +242,7 @@ def _render_engine_tab(data):
                 st.rerun()
 
     # ==============================
-    # RIGHT COLUMN — Pool CF
+    # RIGHT COLUMN — Pool CF & Allocation
     # ==============================
     with col_right:
         st.subheader("🎱 Pool CF & Allocation")
@@ -285,77 +284,111 @@ def _render_engine_tab(data):
             cur_c = state_deploy.get("fix_c", 0)
             cur_t = state_deploy.get("price", 0)
             cur_b = state_deploy.get("baseline", 0)
+            cur_ev_debt = state_deploy.get("cumulative_ev", 0.0)
 
             # Input for Deployment
             with st.form("deploy_round_form", clear_on_submit=False):
+                action_type = st.selectbox("Action / Objective", [
+                    "📈 Scale Up (เพิ่มทุน fix_c)",
+                    "🛡️ Buy Puts (ซื้อประกัน)",
+                    "🎯 Buy Calls (เพิ่มของ/Speculate)",
+                    "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)"
+                ], key="deploy_action_round")
+
                 d_amt = st.number_input(
-                    f"Deploy Amount ($) — Max: ${pool_cf:,.2f}", 
+                    f"Deploy Amount ($) — Pool Max: ${pool_cf:,.2f}", 
                     min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
                     value=0.0, step=100.0, key="deploy_amt_round"
                 )
-                d_note = st.text_input("Note", value="Depoly from Pool CF", placeholder="Reason...")
-                
-                # Preview values
-                new_c = cur_c + d_amt
-                # Rollover Equation with NO Price Change:
-                # b_new = b_old + c*ln(P/t) - c'*ln(P/t')
-                # Since P = t = t', ln(1) = 0. So b_new = b_old.
-                # Creates a clean injection without distorting the baseline.
+                d_note = st.text_input("Note", value="", placeholder="Reason... (e.g. War Chest Unlock)")
                 
                 submitted_deploy = st.form_submit_button("🔍 Preview Injection")
             
             if submitted_deploy and d_amt > 0:
-                st.info(f"💡 **Preview:** Adding ${d_amt:,.2f} to {deploy_ticker}")
+                # Logic per Action
+                mock_scale_up = 0.0
+                mock_new_c = cur_c
+                mock_ev_change = 0.0
+                note_prefix = ""
+
+                if "Scale Up" in action_type:
+                    mock_scale_up = d_amt
+                    mock_new_c = cur_c + d_amt
+                    note_prefix = "[Scale Up]"
+                elif "Buy Puts" in action_type:
+                    # Expense: No fix_c change. Just spending.
+                    note_prefix = "[Buy Puts]"
+                elif "Buy Calls" in action_type:
+                    # Expense/Speculation
+                    note_prefix = "[Buy Calls]"
+                elif "Pay Ev" in action_type:
+                    # Reduces Debt
+                    mock_ev_change = -d_amt
+                    note_prefix = "[Pay Ev]"
+
+                final_note = f"{note_prefix} {d_note}".strip()
+                
+                st.info(f"💡 **Preview:** {action_type} ${d_amt:,.2f} to {deploy_ticker}")
                 
                 # Construct Mock Round Data
                 injection_round = {
                     "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
-                    "action": "Injection (Deploy)",
+                    "action": "Injection",
                     "p_old": cur_t,
                     "p_new": cur_t,  # Price unchanged
                     "c_before": cur_c,
-                    "c_after": new_c,
+                    "c_after": mock_new_c,
                     "shannon_profit": 0.0,
                     "harvest_profit": 0.0,
                     "hedge_cost": 0.0,
-                    "surplus": d_amt, # The injection is treated as realized surplus from outside
-                    "scale_up": d_amt,
+                    "surplus": d_amt if mock_scale_up > 0 else -d_amt, # Log raw flow
+                    "scale_up": mock_scale_up,
                     "b_before": cur_b,
                     "b_after": cur_b, # Unchanged
                     "hedge_ratio": 0.0,
                     "sigma": 0.0,
-                    "note": d_note
+                    "note": final_note,
+                    "ev_change": mock_ev_change # Special field for Pay Ev
                 }
                 st.session_state["_pending_injection"] = injection_round
                 st.session_state["_pending_injection_idx"] = d_idx
                 st.session_state["_pending_injection_amt"] = d_amt
+                st.session_state["_pending_injection_type"] = action_type
 
             # Commit Logic
             if "_pending_injection" in st.session_state and st.session_state.get("_pending_injection_idx") == d_idx:
                 p_inj = st.session_state["_pending_injection"]
+                p_type = st.session_state.get("_pending_injection_type", "")
                 
                 # Visual Diff
-                dc1, dc2 = st.columns(2)
-                dc1.metric("fix_c Old", f"${p_inj['c_before']:,.2f}")
-                dc2.metric("fix_c New", f"${p_inj['c_after']:,.2f}", delta=f"+${p_inj['scale_up']:,.2f}")
+                dc1, dc2, dc3 = st.columns(3)
+                dc1.metric("fix_c Change", f"${p_inj['c_before']:,.0f} → ${p_inj['c_after']:,.0f}")
+                dc2.metric("Pool Deduction", f"-${st.session_state['_pending_injection_amt']:,.2f}")
+                
+                if "Pay Ev" in p_type:
+                    dc3.metric("Burn Rate (Ev)", f"${cur_ev_debt:,.2f} → ${max(0, cur_ev_debt - st.session_state['_pending_injection_amt']):,.2f}", delta="Reduced Debt")
                 
                 st.caption(f"Note: {p_inj['note']}")
 
-                if st.button("🚀 Confirm Deployment", type="primary", key="confirm_deploy"):
+                if st.button("🚀 Confirm Transaction", type="primary", key="confirm_deploy"):
                     # 1. Deduct from Pool
                     amt = st.session_state["_pending_injection_amt"]
                     if data["global_pool_cf"] >= amt:
                         data["global_pool_cf"] -= amt
                         
-                        # 2. Commit Round
+                        # special handling for Pay Ev
+                        if "Pay Ev" in p_type:
+                             t_data_deploy["current_state"]["cumulative_ev"] = max(0.0, cur_ev_debt - amt)
+                        
                         commit_round(data, d_idx, p_inj)
                         
                         # Clear state
                         del st.session_state["_pending_injection"]
                         del st.session_state["_pending_injection_idx"]
                         del st.session_state["_pending_injection_amt"]
+                        del st.session_state["_pending_injection_type"]
                         
-                        st.success(f"✅ Deployed ${amt:,.2f} to {deploy_ticker} successfully!")
+                        st.success(f"✅ Transaction Complete: {p_type} ${amt:,.2f}!")
                         st.rerun()
                     else:
                         st.error("❌ Pool fund insufficient (State changed?)")
@@ -379,13 +412,20 @@ def _render_engine_tab(data):
             p_old = rd.get("p_old", 0)
             p_new_val = rd.get("p_new", 0)
             pct = ((p_new_val / p_old) - 1) * 100 if p_old else 0
+            
+            note_str = rd.get("note", "")
+            action_str = rd.get("action", "")
+            if note_str:
+                action_str += f" ({note_str})"
+            
             rows.append({
                 # ── รอบ / วันที่ ──
                 "Round": rd.get("round_id", ""),
                 "Date": rd.get("date", ""),
+                "Action": action_str,
                 # ── ราคา ──
                 "Price": f"${p_old:,.2f} → ${p_new_val:,.2f}",
-                "Δ%": f"{pct:+.1f}%",
+                # "Δ%": f"{pct:+.1f}%",
                 # ── ทุน (c) — จัดกลุ่มไว้ด้วยกัน ──
                 "c Before": f"${rd.get('c_before', 0):,.0f}",
                 "c After": f"${rd.get('c_after', 0):,.2f}",
@@ -393,87 +433,16 @@ def _render_engine_tab(data):
                 # ── รายรับ ──
                 "Shannon": f"${shannon:,.2f}",
                 "Harvest": f"${harvest:,.2f}",
-                "Total": f"${total_income:,.2f}",
+                # "Total": f"${total_income:,.2f}",
                 # ── ค่าใช้จ่าย / Surplus ──
-                f"Hedge (x{hr:.1f})": f"-${rd.get('hedge_cost', 0):,.2f}",
+                f"Hedge": f"-${rd.get('hedge_cost', 0):,.2f}",
                 "Surplus": f"${rd.get('surplus', 0):,.2f}",
                 # ── Baseline ──
                 "b After": f"${rd.get('b_after', 0):,.2f}",
                 # ── Config ──
-                "σ": f"{rd.get('sigma', 0):.2f}",
+                # "σ": f"{rd.get('sigma', 0):.2f}",
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-# ----------------------------------------------------------
-# TAB: Portfolio Dashboard (Legacy — preserved)
-# ----------------------------------------------------------
-def _render_portfolio_dashboard(data):
-    if not data:
-        st.info("ยังไม่มีข้อมูล — เพิ่มหุ้นที่แท็บ ➕ Manage Data")
-        return
-
-    df = build_portfolio_df(data)
-    total_ev = df["Ev (Extrinsic)"].sum()
-    total_lock = df["Lock P&L"].sum()
-    total_surplus = df["Surplus IV"].sum()
-    total_net = df["Net"].sum()
-    total_c = df["Fix_C"].sum()
-    n_tickers = len(df)
-    n_profit = (df["Net"] > 0).sum()
-    n_loss = (df["Net"] < 0).sum()
-
-    st.subheader("Portfolio Summary")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Fix_C (Deployed)", f"${total_c:,.0f}", f"{n_tickers} tickers")
-    m2.metric("Ev (ค่า K จ่ายทิ้ง)", f"${total_ev:,.2f}", delta="Extrinsic Cost", delta_color="inverse")
-    m3.metric("Lock P&L + Surplus IV", f"${total_lock + total_surplus:,.2f}",
-              delta=f"Lock {total_lock:,.0f} + IV {total_surplus:,.0f}")
-    m4.metric("💰 Net P&L (รวมทั้งพอร์ต)", f"${total_net:,.2f}",
-              delta=f"🟢{n_profit} 🔴{n_loss}", delta_color="normal" if total_net >= 0 else "inverse")
-    st.divider()
-
-    st.subheader("Per-Ticker Breakdown")
-    def color_net(val):
-        if isinstance(val, (int, float)):
-            if val > 0: return "color: #00c853"
-            elif val < 0: return "color: #ff1744"
-        return ""
-
-    styled = df.style.format({
-        "Price (t)": "${:,.2f}", "Fix_C": "${:,.0f}", "Baseline (b)": "${:,.2f}",
-        "Ev (Extrinsic)": "${:,.2f}", "Lock P&L": "${:,.2f}", "Surplus IV": "${:,.2f}", "Net": "${:,.2f}",
-    })
-    try:
-        styled = styled.map(color_net, subset=["Net", "Baseline (b)", "Lock P&L"])
-    except AttributeError:
-        styled = styled.applymap(color_net, subset=["Net", "Baseline (b)", "Lock P&L"])
-    st.dataframe(styled, use_container_width=True, height=400)
-    st.divider()
-
-    st.subheader("Net P&L per Ticker")
-    colors = ["#00c853" if v >= 0 else "#ff1744" for v in df["Net"]]
-    fig_bar = go.Figure(data=[go.Bar(
-        x=df["Ticker"], y=df["Net"], marker_color=colors,
-        text=[f"${v:,.0f}" for v in df["Net"]], textposition="outside",
-    )])
-    fig_bar.update_layout(title="Net P&L = Ev + Lock P&L (per ticker)",
-        xaxis_title="Ticker", yaxis_title="Net P&L ($)", height=400, plot_bgcolor="rgba(0,0,0,0)")
-    fig_bar.add_hline(y=0, line_dash="dash", line_color="gray")
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-    st.subheader("Waterfall: Ev → Lock P&L → Net")
-    fig_wf = go.Figure(go.Waterfall(
-        x=["Ev (Cost)", "Lock P&L", "Surplus IV", "Net"],
-        y=[total_ev, total_lock, total_surplus, 0],
-        measure=["relative", "relative", "relative", "total"],
-        text=[f"${total_ev:,.0f}", f"${total_lock:,.0f}", f"${total_surplus:,.0f}", f"${total_net:,.0f}"],
-        textposition="outside",
-        connector=dict(line=dict(color="gray", width=1)),
-        increasing_marker_color="#00c853", decreasing_marker_color="#ff1744", totals_marker_color="#2196f3",
-    ))
-    fig_wf.update_layout(title="Portfolio P&L Waterfall", height=380)
-    st.plotly_chart(fig_wf, use_container_width=True)
 
 
 # ----------------------------------------------------------
@@ -853,145 +822,47 @@ def _render_rollover_history(data):
 # ----------------------------------------------------------
 def _render_manage_data(data):
     st.subheader("จัดการข้อมูลพอร์ต")
-    tickers_list = get_tickers(data)
+    
+    # Add new Ticker
+    with st.expander("➕ เพิ่ม Ticker ใหม่", expanded=False):
+        with st.form("add_ticker_form"):
+            new_ticker = st.text_input("Ticker Symbol").upper()
+            init_price = st.number_input("Initial Price (t)", min_value=0.01, value=100.0)
+            init_c = st.number_input("Initial Fix_C ($)", min_value=1000.0, value=10000.0)
+            
+            if st.form_submit_button("Add Ticker"):
+                if new_ticker and init_price > 0 and init_c > 0:
+                    # Check if exists
+                    existing = [d["ticker"] for d in get_tickers(data)]
+                    if new_ticker in existing:
+                        st.error("Ticker มีอยู่แล้ว")
+                    else:
+                        new_entry = {
+                            "ticker": new_ticker,
+                            "Final": f"{init_price}, {init_c}, 0.0",
+                            "current_state": {
+                                "price": init_price,
+                                "fix_c": init_c,
+                                "baseline": 0.0,
+                                "cumulative_ev": 0.0
+                            },
+                            "rounds": []
+                        }
+                        data["tickers"].append(new_entry)
+                        save_trading_data(data)
+                        st.success(f"Added {new_ticker}!")
+                        st.rerun()
 
-    action = st.radio("เลือกการทำงาน", [
-        "📝 เพิ่ม Rollover Entry (ให้ ticker ที่มีอยู่)",
-        "➕ เพิ่ม Ticker ใหม่",
-        "🔄 อัพเดทราคาปัจจุบัน (Quick Update)",
-    ], key="manage_action")
-
-    if action == "➕ เพิ่ม Ticker ใหม่":
-        _form_add_ticker(data)
-    elif action == "📝 เพิ่ม Rollover Entry (ให้ ticker ที่มีอยู่)":
-        _form_add_rollover(data)
-    elif action == "🔄 อัพเดทราคาปัจจุบัน (Quick Update)":
-        _form_quick_update(data)
-
-
-def _form_add_ticker(data):
-    with st.form("add_ticker_form", clear_on_submit=True):
-        st.markdown("##### ➕ เพิ่ม Ticker ใหม่")
-        ticker = st.text_input("Ticker Symbol", placeholder="e.g. AAPL").upper()
-        col_a, col_b = st.columns(2)
-        with col_a:
-            price = st.number_input("ราคาอ้างอิงเริ่มต้น (t)", min_value=0.01, value=10.0, step=0.5)
-            fix_c = st.number_input("ทุนคงที่ (c)", min_value=0.01, value=1500.0, step=100.0)
-        with col_b:
-            ev_val = st.number_input("Ev (Extrinsic Value costs)", value=0.0, step=10.0,
-                                     help="EV = Premium − Intrinsic Value (ค่า K จ่ายทิ้ง)")
-        submitted = st.form_submit_button("✅ เพิ่ม Ticker", type="primary")
-        if submitted and ticker:
-            new_entry = {
-                "ticker": ticker,
-                "Final": f"{price}, {fix_c}, 0",
-                "Original": f"ราคาอ้างอิง: {price}, ทุนคงที่: {fix_c}",
-                "Equation": "b += c · ln(P / t) - c' · ln(P / t'); แล้วตั้ง P = P', t = t', c = c'",
-                "history_1": "", "comment": "",
-                "beta_Equation": f" Ev: {ev_val:.2f} + Lock_P&L: +0",
-                "beta_momory": f"Net: {ev_val:.2f}",
-                "current_state": {
-                    "price": price, "fix_c": fix_c, "baseline": 0.0,
-                    "pool_cf_net": 0.0, "cumulative_ev": abs(ev_val),
-                },
-                "rounds": [],
-            }
-            data["tickers"].append(new_entry)
-            save_trading_data(data)
-            st.success(f"✅ เพิ่ม {ticker} สำเร็จ!")
-            st.rerun()
-
-
-def _form_add_rollover(data):
-    tickers_list = get_tickers(data)
-    if not tickers_list:
-        st.info("ยังไม่มี ticker — เพิ่มที่ '➕ เพิ่ม Ticker ใหม่' ก่อน")
-        return
-
-    tickers = [d.get("ticker", "???") for d in tickers_list]
-
-    with st.form("add_rollover_form", clear_on_submit=True):
-        st.markdown("##### 📝 เพิ่ม Rollover Entry (Manual)")
-        sel_ticker = st.selectbox("Ticker", tickers)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            old_t = st.number_input("t เดิม", min_value=0.01, value=10.0, step=0.5)
-            new_t = st.number_input("t ใหม่", min_value=0.01, value=10.0, step=0.5)
-            current_p = st.number_input("ราคาปัจจุบัน (P)", min_value=0.01, value=10.0, step=0.5)
-        with col_b:
-            old_c = st.number_input("c เดิม", min_value=0.01, value=1500.0, step=100.0)
-            new_c = st.number_input("c ใหม่", min_value=0.01, value=1500.0, step=100.0)
-
-        submitted = st.form_submit_button("✅ บันทึก Rollover", type="primary")
-        if submitted:
-            idx = tickers.index(sel_ticker)
-            ticker_data = tickers_list[idx]
-            _, _, old_b = parse_final(ticker_data.get("Final", ""))
-            old_b = old_b if old_b else 0.0
-
-            if current_p > 0 and old_t > 0 and new_t > 0:
-                delta_b = old_c * np.log(current_p / old_t) - new_c * np.log(current_p / new_t)
-                new_b = old_b + delta_b
-            else:
-                new_b = old_b
-
-            h_idx = 1
-            while f"history_{h_idx}" in ticker_data:
-                h_idx += 1
-
-            desc = f"ราคาอ้างอิง: {old_t} → {new_t} , ทุนคงที่: {old_c} → {new_c} , ราคาปัจจุบัน: {current_p}"
-            calc = (f"{old_b:.2f} += ({old_c} × ln({current_p}/{old_t})) − "
-                    f"({new_c} × ln({current_p}/{new_t})) | "
-                    f"c = {new_c} , t = {new_t} , b = {new_b:.2f}")
-
-            ticker_data[f"history_{h_idx}"] = desc
-            ticker_data[f"history_{h_idx}.1"] = calc
-            ticker_data["Final"] = f"{new_t}, {new_c}, {new_b:.2f}"
-            ticker_data["current_state"] = {
-                "price": new_t, "fix_c": new_c, "baseline": new_b,
-                "pool_cf_net": ticker_data.get("current_state", {}).get("pool_cf_net", 0.0),
-                "cumulative_ev": ticker_data.get("current_state", {}).get("cumulative_ev", 0.0),
-            }
-            data["tickers"][idx] = ticker_data
-            save_trading_data(data)
-            st.success(f"✅ Rollover #{h_idx} สำหรับ {sel_ticker} บันทึกแล้ว! b = ${new_b:.2f}")
-            st.rerun()
-
-
-def _form_quick_update(data):
-    tickers_list = get_tickers(data)
-    if not tickers_list:
-        st.info("ยังไม่มี ticker")
-        return
-
-    tickers = [d.get("ticker", "???") for d in tickers_list]
-
-    with st.form("quick_update_form", clear_on_submit=True):
-        st.markdown("##### 🔄 Quick Update — อัพเดทค่า Ev/Net")
-        sel_ticker = st.selectbox("Ticker", tickers, key="qu_ticker")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            new_ev = st.number_input("Ev (Extrinsic Value)", value=0.0, step=10.0,
-                                     help="EV = Premium − Intrinsic Value")
-        with col_b:
-            new_surplus = st.text_input("Surplus IV (เช่น (4.98*100)=498|(2.31*100)=231)",
-                                        placeholder="Iv_Put: ...", value="")
-        submitted = st.form_submit_button("✅ อัพเดท", type="primary")
-        if submitted:
-            idx = tickers.index(sel_ticker)
-            ticker_data = tickers_list[idx]
-            _, lock_pnl = parse_beta_numbers(ticker_data.get("beta_Equation", ""))
-            existing_beta = ticker_data.get("beta_Equation", "")
-            lock_match = re.search(r'Lock_P&L:\s*(.+)', sanitize_number_str(existing_beta))
-            lock_str = lock_match.group(1).strip() if lock_match else "+0"
-
-            if new_surplus:
-                ticker_data["Surplus_Iv"] = f"Iv_Put: {new_surplus}"
-
-            ticker_data["beta_Equation"] = f" Ev: {new_ev:.2f} + Lock_P&L: {lock_str}"
-            net = new_ev + lock_pnl + parse_surplus_iv(ticker_data.get("Surplus_Iv", ""))
-            ticker_data["beta_momory"] = f"Net: {net:.2f}"
-            data["tickers"][idx] = ticker_data
-            save_trading_data(data)
-            st.success(f"✅ อัพเดท {sel_ticker} สำเร็จ! Net = ${net:,.2f}")
-            st.rerun()
+    st.divider()
+    
+    # Manage Existing
+    tickers = get_tickers(data)
+    if tickers:
+        st.write("##### รายชื่อ Tickers")
+        for i, t in enumerate(tickers):
+            with st.expander(f"{t['ticker']}"):
+                if st.button(f"🗑️ ลบ {t['ticker']}", key=f"del_{i}"):
+                    data["tickers"].pop(i)
+                    save_trading_data(data)
+                    st.success(f"Deleted {t['ticker']}")
+                    st.rerun()
