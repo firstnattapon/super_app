@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import re
+from datetime import datetime
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
@@ -18,7 +19,7 @@ from flywheels import (
 
 # ============================================================
 # CHAPTER 8: CHAIN SYSTEM (ระบบลูกโซ่) — FINAL PRODUCT
-# ============================================================ 
+# ============================================================
 
 def chapter_chain_system():
     st.header("⚡ Chain System — Main Engine")
@@ -245,68 +246,124 @@ def _render_engine_tab(data):
     # RIGHT COLUMN — Pool CF
     # ==============================
     with col_right:
-        st.subheader("🎱 Pool CF")
-        st.caption("กำไรจาก Put ระเบิดตอน Crash → War Chest → Deploy เพิ่ม fix_c")
+        st.subheader("🎱 Pool CF & Allocation")
+        st.caption("เติมเงิน (Funding) หรือ เบิกจ่าย (Deploy) เข้าสู่ระบบ")
 
+        # ── 1. Add to Pool (Funding) ──
         with st.form("add_pool_cf_form", clear_on_submit=True):
-            st.markdown("##### ➕ Add to Pool")
-            amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
-            note = st.text_input("Note", placeholder="e.g. Put payoff from FLNC crash")
-            if st.form_submit_button("💰 Add to Pool", type="primary"):
-                if amount > 0:
-                    data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
-                    save_trading_data(data)
-                    st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
-                    st.rerun()
+            st.markdown("##### 📥 Add Funding to Pool")
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
+            with c2:
+                # Spacer
+                st.write("")
+                st.write("")
+                btn_add = st.form_submit_button("💰 Add Fund", type="primary")
+            
+            if btn_add and amount > 0:
+                data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
+                note = "Funding Injection"
+                save_trading_data(data)
+                st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
+                st.rerun()
 
         st.divider()
 
-        if pool_cf > 0 and tickers_list:
-            st.markdown("##### 🏦 Capital Allocation (เบิกจ่ายกองกลาง)")
-            ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
-            
-            with st.form("deploy_pool_form", clear_on_submit=True):
-                c1, c2 = st.columns(2)
-                with c1:
-                    deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
-                with c2:
-                    action_type = st.selectbox("Action / Objective", [
-                        "📈 Scale Up (เพิ่มทุน fix_c)",
-                        "🛡️ Buy Puts (ซื้อประกัน)",
-                        "🎯 Buy Calls (เพิ่มของ/Speculate)",
-                        "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)"
-                    ], key="deploy_action")
-                
-                amount_c1, amount_c2 = st.columns(2)
-                with amount_c1:
-                    deploy_amount = st.number_input("Amount ($)", min_value=0.0, max_value=float(pool_cf),
-                                                     value=0.0, step=100.0, key="deploy_amt")
-                with amount_c2:
-                    note = st.text_input("Note (Optional)", placeholder="e.g. Add hedge for earning")
+        # ── 2. Manual Round Injection (Deployment) ──
+        if tickers_list:
+            st.markdown("##### 🚀 Manual Round Injection (Deploy)")
+            st.caption("ยิง `fix_c` เข้า Ticker โดยตรง (บันทึกเป็น Round)")
 
-                if st.form_submit_button("🚀 Execute Allocation", type="primary"):
-                    if deploy_amount > 0:
-                        # Map friendly names to internal keys
-                        action_map = {
-                            "📈 Scale Up (เพิ่มทุน fix_c)": "Scale Up",
-                            "🛡️ Buy Puts (ซื้อประกัน)": "Buy Puts",
-                            "🎯 Buy Calls (เพิ่มของ/Speculate)": "Buy Calls",
-                            "⏳ Pay Ev (จ่ายค่าเช่า/ลด Burn Rate)": "Pay Ev"
-                        }
-                        internal_action = action_map[action_type]
+            ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
+            deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
+            
+            # Find current state
+            d_idx = ticker_names_deploy.index(deploy_ticker)
+            t_data_deploy = tickers_list[d_idx]
+            state_deploy = t_data_deploy.get("current_state", {})
+            cur_c = state_deploy.get("fix_c", 0)
+            cur_t = state_deploy.get("price", 0)
+            cur_b = state_deploy.get("baseline", 0)
+
+            # Input for Deployment
+            with st.form("deploy_round_form", clear_on_submit=False):
+                d_amt = st.number_input(
+                    f"Deploy Amount ($) — Max: ${pool_cf:,.2f}", 
+                    min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
+                    value=0.0, step=100.0, key="deploy_amt_round"
+                )
+                d_note = st.text_input("Note", value="Depoly from Pool CF", placeholder="Reason...")
+                
+                # Preview values
+                new_c = cur_c + d_amt
+                # Rollover Equation with NO Price Change:
+                # b_new = b_old + c*ln(P/t) - c'*ln(P/t')
+                # Since P = t = t', ln(1) = 0. So b_new = b_old.
+                # Creates a clean injection without distorting the baseline.
+                
+                submitted_deploy = st.form_submit_button("🔍 Preview Injection")
+            
+            if submitted_deploy and d_amt > 0:
+                st.info(f"💡 **Preview:** Adding ${d_amt:,.2f} to {deploy_ticker}")
+                
+                # Construct Mock Round Data
+                injection_round = {
+                    "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+                    "action": "Injection (Deploy)",
+                    "p_old": cur_t,
+                    "p_new": cur_t,  # Price unchanged
+                    "c_before": cur_c,
+                    "c_after": new_c,
+                    "shannon_profit": 0.0,
+                    "harvest_profit": 0.0,
+                    "hedge_cost": 0.0,
+                    "surplus": d_amt, # The injection is treated as realized surplus from outside
+                    "scale_up": d_amt,
+                    "b_before": cur_b,
+                    "b_after": cur_b, # Unchanged
+                    "hedge_ratio": 0.0,
+                    "sigma": 0.0,
+                    "note": d_note
+                }
+                st.session_state["_pending_injection"] = injection_round
+                st.session_state["_pending_injection_idx"] = d_idx
+                st.session_state["_pending_injection_amt"] = d_amt
+
+            # Commit Logic
+            if "_pending_injection" in st.session_state and st.session_state.get("_pending_injection_idx") == d_idx:
+                p_inj = st.session_state["_pending_injection"]
+                
+                # Visual Diff
+                dc1, dc2 = st.columns(2)
+                dc1.metric("fix_c Old", f"${p_inj['c_before']:,.2f}")
+                dc2.metric("fix_c New", f"${p_inj['c_after']:,.2f}", delta=f"+${p_inj['scale_up']:,.2f}")
+                
+                st.caption(f"Note: {p_inj['note']}")
+
+                if st.button("🚀 Confirm Deployment", type="primary", key="confirm_deploy"):
+                    # 1. Deduct from Pool
+                    amt = st.session_state["_pending_injection_amt"]
+                    if data["global_pool_cf"] >= amt:
+                        data["global_pool_cf"] -= amt
                         
-                        d_idx = ticker_names_deploy.index(deploy_ticker)
-                        # Call the new function (imported or local if refactored)
-                        from flywheels import allocate_pool_funds
-                        data, success = allocate_pool_funds(data, d_idx, deploy_amount, internal_action, note)
+                        # 2. Commit Round
+                        commit_round(data, d_idx, p_inj)
                         
-                        if success:
-                            st.success(f"✅ Allocated ${deploy_amount:,.2f} to {deploy_ticker} ({internal_action})")
-                            st.rerun()
-                        else:
-                            st.error("❌ Transaction Failed (Insufficient Funds?)")
+                        # Clear state
+                        del st.session_state["_pending_injection"]
+                        del st.session_state["_pending_injection_idx"]
+                        del st.session_state["_pending_injection_amt"]
+                        
+                        st.success(f"✅ Deployed ${amt:,.2f} to {deploy_ticker} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Pool fund insufficient (State changed?)")
+
+        elif not tickers_list:
+            st.warning("No Tickers available.")
         elif pool_cf <= 0:
-            st.info("Pool CF ว่าง — ยังไม่มีเงินสำหรับ Allocation")
+            st.info("Pool CF is empty.")
 
     # ── Chain History — full width below columns ──
     rounds = t_data.get("rounds", []) if tickers_list else []
