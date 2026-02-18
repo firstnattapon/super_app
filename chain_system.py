@@ -234,7 +234,7 @@ def _render_engine_tab(data):
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-                del st.session_session_state["_pending_round"]
+                del st.session_state["_pending_round"]
                 del st.session_state["_pending_ticker_idx"]
                 del st.session_state["_pending_ticker_name"]
                 st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
