@@ -2,7 +2,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go 
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import re
 from datetime import datetime
@@ -243,11 +243,11 @@ def _render_engine_tab(data):
 
             st.caption("ผลลัพธ์ของ Round นี้:")
             p5, p6, p7, p8 = st.columns(4)
-            p5.metric("c Before", f"${rd['c_before']:,.0f}")
-            p6.metric("c After", f"${rd['c_after']:,.2f}",
+            p5.metric("fix_c", f"${rd['c_before']:,.0f} > ${rd['c_after']:,.0f}",
                        delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
-            p7.metric("Price (New)", f"${rd['p_new']:,.2f}")
-            p8.metric("Baseline (New)", f"${rd['b_after']:,.2f}")
+            p6.metric("Price", f"${rd['p_old']:,.2f} > ${rd['p_new']:,.2f}")
+            p7.metric("Baseline", f"${rd['b_before']:,.2f} > ${rd['b_after']:,.2f}")
+            p8.empty()
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
@@ -477,12 +477,20 @@ def _render_consolidated_history(t_data):
         if "Injection" in rd.get("action", ""):
             action_short = "Inject/Deploy"
             
+        # Format: Old > New
+        p_old = rd.get('p_old', 0)
+        p_new = rd.get('p_new', 0)
+        c_before = rd.get('c_before', 0)
+        c_after = rd.get('c_after', 0)
+        b_before = rd.get('b_before', 0)
+        b_after = rd.get('b_after', 0)
+
         table_rows.append({
             "Date": rd.get("date", "")[:10],  # Short date
             "Action": action_short,
-            "Price": f"${rd.get('p_new', 0):,.2f}",
-            "fix_c": f"${rd.get('c_after', 0):,.0f}",
-            "b": f"${rd.get('b_after', 0):,.2f}",
+            "Price": f"${p_old:,.2f} > ${p_new:,.2f}",
+            "fix_c": f"${c_before:,.0f} > ${c_after:,.0f}",
+            "b": f"${b_before:,.2f} > ${b_after:,.2f}",
             "Hedge Cost": hedge_cost_label,
             "Net Result": f"${rd.get('surplus', 0):,.2f}",
             "Note": rd.get("note", "")
