@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import re
-from datetime import datetime 
+from datetime import datetime
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
@@ -42,10 +42,10 @@ def chapter_chain_system():
     data = load_trading_data()
     tickers_list = get_tickers(data)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # REFACTORED: Combined Engine & History into one tab
+    tab1, tab2, tab4, tab5 = st.tabs([
         "⚡ Active Dashboard",
-        "⚡ Engine",
-        "📜 History",
+        "⚡ Engine & History",
         "🔬 Simulation (Ref)",
         "➕ Manage Data"
     ])
@@ -54,8 +54,6 @@ def chapter_chain_system():
         _render_active_dashboard(data)
     with tab2:
         _render_engine_tab(data)
-    with tab3:
-        _render_rollover_history(tickers_list)
     with tab4:
         _render_chain_flow()
     with tab5:
@@ -159,17 +157,15 @@ def _render_active_dashboard(data):
 
 
 # ----------------------------------------------------------
-# TAB: ⚡ Engine  (Run Round + Pool CF — merged)
+# TAB: ⚡ Engine (Run Round + Pool CF) & History Consolidated
 # ----------------------------------------------------------
 def _render_engine_tab(data):
-    """Unified Engine: Run Chain Round (left) + Pool CF management (right)."""
+    """Unified Engine: Run Chain Round (left) + Pool CF (right) + History (Bottom)."""
     tickers_list = get_tickers(data)
-    pool_cf = data.get("global_pool_cf", 0.0)
-
     pool_cf = data.get("global_pool_cf", 0.0)
     ev_reserve = data.get("global_ev_reserve", 0.0)
 
-    # ── Top bar: Pool CF balance — always visible ──
+    # ── Top bar: Global Stats ──
     with st.container(border=True):
         top1, top2, top3, top4 = st.columns(4)
         top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
@@ -190,7 +186,7 @@ def _render_engine_tab(data):
     # ==============================
     with col_left:
         st.subheader("🔗 Run Chain Round")
-        st.caption("เลือก Ticker → ใส่ราคาปัจจุบัน → ระบบคำนวณอัตโนมัติ → กด Commit")
+        st.caption("เลือก Ticker → ใส่ราคาปัจจุบัน → ระบบคำนวณอัตโนมัติ")
 
         ticker_names = [d.get("ticker", "???") for d in tickers_list]
         selected = st.selectbox("เลือก Ticker", ticker_names, key="run_round_ticker")
@@ -266,7 +262,7 @@ def _render_engine_tab(data):
     # ==============================
     with col_right:
         st.subheader("🎱 Pool CF & Allocation")
-        st.caption("เติมเงิน (Funding) หรือ เบิกจ่าย (Deploy) เข้าสู่ระบบ")
+        st.caption("เติมเงิน (Funding) หรือ เบิกจ่าย (Deploy)")
 
         # ── 1. Add to Pool (Funding) ──
         with st.form("add_pool_cf_form", clear_on_submit=True):
@@ -275,7 +271,6 @@ def _render_engine_tab(data):
             with c1:
                 amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
             with c2:
-                # Spacer
                 st.write("")
                 st.write("")
                 btn_add = st.form_submit_button("💰 Add Fund", type="primary")
@@ -292,12 +287,11 @@ def _render_engine_tab(data):
         # ── 2. Manual Round Injection (Deployment) ──
         if tickers_list:
             st.markdown("##### 🚀 Manual Round Injection (Deploy)")
-            st.caption("ยิง `fix_c` เข้า Ticker โดยตรง (บันทึกเป็น Round)")
+            st.caption("ยิง `fix_c` หรือจ่าย Ev เข้า Ticker โดยตรง")
 
             ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
             deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
             
-            # Find current state
             d_idx = ticker_names_deploy.index(deploy_ticker)
             t_data_deploy = tickers_list[d_idx]
             state_deploy = t_data_deploy.get("current_state", {})
@@ -306,9 +300,8 @@ def _render_engine_tab(data):
             cur_b = state_deploy.get("baseline", 0)
             cur_ev_debt = state_deploy.get("cumulative_ev", 0.0)
 
-            # Input for Deployment
             with st.form("deploy_round_form", clear_on_submit=False):
-                action_type = st.selectbox("Action / Objective", [
+                action_type = st.selectbox("Action", [
                     "📈 Scale Up (เพิ่มทุน fix_c)",
                     "🛡️ Buy Puts (ซื้อประกัน)",
                     "🎯 Buy Calls (เพิ่มของ/Speculate)",
@@ -316,16 +309,15 @@ def _render_engine_tab(data):
                 ], key="deploy_action_round")
 
                 d_amt = st.number_input(
-                    f"Deploy Amount ($) — Pool Max: ${pool_cf:,.2f}", 
+                    f"Deploy Amount ($)", 
                     min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
                     value=0.0, step=100.0, key="deploy_amt_round"
                 )
-                d_note = st.text_input("Note", value="", placeholder="Reason... (e.g. War Chest Unlock)")
+                d_note = st.text_input("Note", value="", placeholder="Reason...")
                 
                 submitted_deploy = st.form_submit_button("🔍 Preview Injection")
             
             if submitted_deploy and d_amt > 0:
-                # Logic per Action
                 mock_scale_up = 0.0
                 mock_new_c = cur_c
                 mock_ev_change = 0.0
@@ -336,13 +328,10 @@ def _render_engine_tab(data):
                     mock_new_c = cur_c + d_amt
                     note_prefix = "[Scale Up]"
                 elif "Buy Puts" in action_type:
-                    # Expense: No fix_c change. Just spending.
                     note_prefix = "[Buy Puts]"
                 elif "Buy Calls" in action_type:
-                    # Expense/Speculation
                     note_prefix = "[Buy Calls]"
                 elif "Pay Ev" in action_type:
-                    # Reduces Debt
                     mock_ev_change = -d_amt
                     note_prefix = "[Pay Ev]"
 
@@ -350,37 +339,34 @@ def _render_engine_tab(data):
                 
                 st.info(f"💡 **Preview:** {action_type} ${d_amt:,.2f} to {deploy_ticker}")
                 
-                # Construct Mock Round Data
                 injection_round = {
                     "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
                     "action": "Injection",
                     "p_old": cur_t,
-                    "p_new": cur_t,  # Price unchanged
+                    "p_new": cur_t,
                     "c_before": cur_c,
                     "c_after": mock_new_c,
                     "shannon_profit": 0.0,
                     "harvest_profit": 0.0,
                     "hedge_cost": 0.0,
-                    "surplus": d_amt if mock_scale_up > 0 else -d_amt, # Log raw flow
+                    "surplus": d_amt if mock_scale_up > 0 else -d_amt,
                     "scale_up": mock_scale_up,
                     "b_before": cur_b,
-                    "b_after": cur_b, # Unchanged
+                    "b_after": cur_b,
                     "hedge_ratio": 0.0,
                     "sigma": 0.0,
                     "note": final_note,
-                    "ev_change": mock_ev_change # Special field for Pay Ev
+                    "ev_change": mock_ev_change
                 }
                 st.session_state["_pending_injection"] = injection_round
                 st.session_state["_pending_injection_idx"] = d_idx
                 st.session_state["_pending_injection_amt"] = d_amt
                 st.session_state["_pending_injection_type"] = action_type
 
-            # Commit Logic
             if "_pending_injection" in st.session_state and st.session_state.get("_pending_injection_idx") == d_idx:
                 p_inj = st.session_state["_pending_injection"]
                 p_type = st.session_state.get("_pending_injection_type", "")
                 
-                # Visual Diff
                 dc1, dc2, dc3 = st.columns(3)
                 dc1.metric("fix_c Change", f"${p_inj['c_before']:,.0f} → ${p_inj['c_after']:,.0f}")
                 dc2.metric("Pool Deduction", f"-${st.session_state['_pending_injection_amt']:,.2f}")
@@ -388,81 +374,170 @@ def _render_engine_tab(data):
                 if "Pay Ev" in p_type:
                     dc3.metric("Burn Rate (Ev)", f"${cur_ev_debt:,.2f} → ${max(0, cur_ev_debt - st.session_state['_pending_injection_amt']):,.2f}", delta="Reduced Debt")
                 
-                st.caption(f"Note: {p_inj['note']}")
-
                 if st.button("🚀 Confirm Transaction", type="primary", key="confirm_deploy"):
-                    # 1. Deduct from Pool
                     amt = st.session_state["_pending_injection_amt"]
                     if data["global_pool_cf"] >= amt:
                         data["global_pool_cf"] -= amt
-                        
-                        # special handling for Pay Ev
                         if "Pay Ev" in p_type:
                              t_data_deploy["current_state"]["cumulative_ev"] = max(0.0, cur_ev_debt - amt)
-                        
                         commit_round(data, d_idx, p_inj)
-                        
-                        # Clear state
                         del st.session_state["_pending_injection"]
                         del st.session_state["_pending_injection_idx"]
                         del st.session_state["_pending_injection_amt"]
                         del st.session_state["_pending_injection_type"]
-                        
                         st.success(f"✅ Transaction Complete: {p_type} ${amt:,.2f}!")
                         st.rerun()
                     else:
-                        st.error("❌ Pool fund insufficient (State changed?)")
-
-        elif not tickers_list:
-            st.warning("No Tickers available.")
-        elif pool_cf <= 0:
-            st.info("Pool CF is empty.")
-
-    # ── Chain History — full width below columns ──
-    rounds = t_data.get("rounds", []) if tickers_list else []
-    if rounds:
+                        st.error("❌ Pool fund insufficient")
+        
         st.divider()
-        st.subheader(f"📋 Chain History — {selected}")
-        rows = []
-        for rd in rounds:
-            shannon = rd.get("shannon_profit", 0)
-            harvest = rd.get("harvest_profit", 0)
-            total_income = shannon + harvest
-            hr = rd.get("hedge_ratio", 2.0)
-            p_old = rd.get("p_old", 0)
-            p_new_val = rd.get("p_new", 0)
-            pct = ((p_new_val / p_old) - 1) * 100 if p_old else 0
+
+        # ── 3. Ev Allocation (Sinking Fund) ──
+        with st.expander("🛡️ Manage Ev Sinking Fund"):
+            st.caption("จัดสรรเงินสำรองจ่ายค่า Time Value (Ev) ในอนาคต")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                alloc_amt = st.number_input("Allocate Amount ($)", min_value=0.0, max_value=float(pool_cf), step=100.0, key="alloc_ev")
+            with col_b:
+                if st.button("Move Pool → Ev Reserve"):
+                    if alloc_amt > 0 and pool_cf >= alloc_amt:
+                        data["global_pool_cf"] -= alloc_amt
+                        data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + alloc_amt
+                        save_trading_data(data)
+                        st.success(f"Allocated ${alloc_amt:,.2f} to Ev Reserve")
+                        st.rerun()
+            st.markdown(f"**Current Reserve:** `${ev_reserve:,.2f}`")
+
+    # ==============================
+    # BOTTOM SECTION — Consolidated History
+    # ==============================
+    st.divider()
+    _render_consolidated_history(t_data)
+
+
+def _render_consolidated_history(t_data):
+    """
+    Combined History View:
+    1. Ev Battle (Burn vs Profit)
+    2. Evolution Charts (c, b)
+    3. Clean Data Table (Action Focus)
+    """
+    ticker = t_data.get("ticker", "???")
+    rounds = t_data.get("rounds", [])
+
+    st.subheader(f"📜 {ticker} — Operations History")
+
+    if not rounds:
+        # Fallback to Legacy if no structured rounds
+        legacy_hist = get_rollover_history(t_data)
+        if legacy_hist:
+            st.warning("⚠️ Showing Legacy History (No structured rounds yet). Run a round to upgrade.")
+            st.dataframe(pd.DataFrame(legacy_hist))
+        else:
+            st.info("No history available yet.")
+        return
+
+    # 1. Prepare Data for Charts
+    # Aggregate cumulative metrics
+    cum_ev_burn = 0.0
+    cum_profit = 0.0
+    chart_data = []
+    
+    table_rows = []
+
+    for i, rd in enumerate(rounds):
+        hedge = rd.get("hedge_cost", 0.0)
+        # Ev Change: if negative, it's a payment/deduction. If positive (hedge cost), it's a burn.
+        # Logic: Hedge Cost is burn (Red). Pay Ev is recovery (Green).
+        
+        # Determine Ev Impact visually
+        ev_impact = 0.0
+        ev_label = "—"
+        
+        # Check action type
+        if "Pay Ev" in rd.get("note", "") or rd.get("ev_change", 0) < 0:
+             # Payment
+             payment = abs(rd.get("ev_change", 0))
+             ev_impact = -payment
+             ev_label = f"🟢 Paid -${payment:,.0f}"
+        elif hedge > 0:
+             # Standard Round
+             ev_impact = hedge
+             ev_label = f"🔴 Burn -${hedge:,.0f}"
+             cum_ev_burn += hedge
+        
+        shannon = rd.get("shannon_profit", 0)
+        harvest = rd.get("harvest_profit", 0)
+        total_income = shannon + harvest
+        if total_income > 0:
+            cum_profit += total_income
             
-            note_str = rd.get("note", "")
-            action_str = rd.get("action", "")
-            if note_str:
-                action_str += f" ({note_str})"
+        chart_data.append({
+            "Round": i+1,
+            "Burn": cum_ev_burn,
+            "Profit": cum_profit,
+            "c": rd.get("c_after", 0),
+            "b": rd.get("b_after", 0)
+        })
+
+        # Table Row
+        action_short = rd.get("action", "Round")
+        if rd.get("scale_up", 0) > 0:
+            action_short = f"Scale +${rd['scale_up']:,.0f}"
+        if "Injection" in rd.get("action", ""):
+            action_short = "Inject/Deploy"
             
-            rows.append({
-                # ── รอบ / วันที่ ──
-                "Round": rd.get("round_id", ""),
-                "Date": rd.get("date", ""),
-                "Action": action_str,
-                # ── ราคา ──
-                "Price": f"${p_old:,.2f} → ${p_new_val:,.2f}",
-                # "Δ%": f"{pct:+.1f}%",
-                # ── ทุน (c) — จัดกลุ่มไว้ด้วยกัน ──
-                "c Before": f"${rd.get('c_before', 0):,.0f}",
-                "c After": f"${rd.get('c_after', 0):,.2f}",
-                "Scale Up": f"+${rd.get('scale_up', 0):,.2f}" if rd.get("scale_up", 0) > 0 else "—",
-                # ── รายรับ ──
-                "Shannon": f"${shannon:,.2f}",
-                "Harvest": f"${harvest:,.2f}",
-                # "Total": f"${total_income:,.2f}",
-                # ── ค่าใช้จ่าย / Surplus ──
-                f"Hedge": f"-${rd.get('hedge_cost', 0):,.2f}",
-                "Surplus": f"${rd.get('surplus', 0):,.2f}",
-                # ── Baseline ──
-                "b After": f"${rd.get('b_after', 0):,.2f}",
-                # ── Config ──
-                # "σ": f"{rd.get('sigma', 0):.2f}",
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        table_rows.append({
+            "Date": rd.get("date", "")[:10],  # Short date
+            "Action": action_short,
+            "Price": f"${rd.get('p_new', 0):,.2f}",
+            "fix_c": f"${rd.get('c_after', 0):,.0f}",
+            "b": f"${rd.get('b_after', 0):,.2f}",
+            "Ev Impact": ev_label,
+            "Net Result": f"${rd.get('surplus', 0):,.2f}",
+            "Note": rd.get("note", "")
+        })
+
+    # 2. Render Charts (Side-by-Side)
+    c1, c2 = st.columns(2)
+    
+    df_chart = pd.DataFrame(chart_data)
+    
+    with c1:
+        # Ev Battle Chart
+        fig_ev = go.Figure()
+        fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Burn"], 
+                                    mode='lines', name='Cum. Ev Burn', line=dict(color='#ff1744', width=2)))
+        fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Profit"], 
+                                    mode='lines', name='Cum. Harvest', line=dict(color='#00c853', width=2)))
+        fig_ev.update_layout(title="⚔️ Ev Battle: Cost vs. Harvest", 
+                             xaxis_title="Round", yaxis_title="Cumulative ($)", margin=dict(t=30, b=0, l=0, r=0))
+        st.plotly_chart(fig_ev, use_container_width=True)
+
+    with c2:
+        # Evolution Chart
+        fig_evo = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["c"], 
+                                     name="fix_c", line=dict(color='#ff9800')), secondary_y=False)
+        fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["b"], 
+                                     name="Baseline", line=dict(color='#2196f3', dash='dot')), secondary_y=True)
+        fig_evo.update_layout(title="📈 Growth Evolution (c & b)", margin=dict(t=30, b=0, l=0, r=0))
+        st.plotly_chart(fig_evo, use_container_width=True)
+
+    # 3. Render Table
+    st.markdown("##### 🧾 Detailed Log")
+    df_table = pd.DataFrame(table_rows[::-1]) # Reverse order (Newest first)
+    
+    # Custom styling function (optional, but staying simple for performance)
+    st.dataframe(
+        df_table, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Ev Impact": st.column_config.TextColumn("Ev Impact", help="Red = Burn, Green = Pay/Recover"),
+            "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost")
+        }
+    )
 
 
 # ----------------------------------------------------------
@@ -757,84 +832,6 @@ def _render_chain_flow():
     → **Valid Net:** ${pool_cf_net:,.2f}
     → **Deploy** ${deploy_amount:,.2f} ({(deploy_ratio*100):.0f}%) + **Reserve** ${reserve_amount:,.2f} ({(100-deploy_ratio*100):.0f}%)
     """)
-
-
-# ----------------------------------------------------------
-# TAB: Rollover History
-# ----------------------------------------------------------
-def _render_rollover_history(data):
-    if not data:
-        st.info("ยังไม่มีข้อมูล — เพิ่มหุ้นที่แท็บ ➕ Manage Data")
-        return
-
-    tickers = [d.get("ticker", "???") for d in data]
-    selected = st.selectbox("เลือก Ticker", tickers, key="hist_ticker")
-    idx = tickers.index(selected)
-    ticker_data = data[idx]
-
-    t, c, b = parse_final(ticker_data.get("Final", ""))
-    ev, lock_pnl = parse_beta_numbers(ticker_data.get("beta_Equation", ""))
-    net = parse_beta_net(ticker_data.get("beta_momory", ""))
-    surplus_iv = parse_surplus_iv(ticker_data.get("Surplus_Iv", ""))
-    comment = ticker_data.get("comment", "")
-
-    st.subheader(f"📌 {selected} — Current State")
-    with st.container(border=True):
-        cs1, cs2, cs3, cs4 = st.columns(4)
-        cs1.metric("Price (t)", f"${t}" if t else "N/A")
-        cs2.metric("Fix_C", f"${c:,.0f}" if c else "N/A")
-        cs3.metric("Baseline (b)", f"${b:,.2f}" if b is not None else "N/A")
-        cs4.metric("Net P&L", f"${net:,.2f}",
-                   delta="Profit" if net > 0 else "Loss",
-                   delta_color="normal" if net >= 0 else "inverse")
-        cs5, cs6, cs7, cs8 = st.columns(4)
-        cs5.metric("Ev (ค่า K)", f"${ev:,.2f}")
-        cs6.metric("Lock P&L", f"${lock_pnl:,.2f}")
-        cs7.metric("Surplus IV", f"${surplus_iv:,.2f}")
-        cs8.metric("Comment", comment if comment else "—")
-
-    history = get_rollover_history(ticker_data)
-    if not history:
-        st.caption("ยังไม่มีประวัติ Rollover สำหรับ ticker นี้")
-        return
-
-    st.subheader("📜 Rollover History Timeline")
-    rows_for_table = []
-    for h in history:
-        rows_for_table.append({
-            "Step": h["step"], "Description": h["description"],
-            "Calculation": h["calculation"],
-            "b": h["b"], "c": h["c"], "t": h["t"],
-        })
-    st.dataframe(pd.DataFrame(rows_for_table), use_container_width=True, hide_index=True)
-
-    b_values = [h["b"] for h in history if h["b"] is not None]
-    steps = [h["step"] for h in history if h["b"] is not None]
-    if b_values:
-        st.subheader("📈 Baseline (b) Evolution")
-        fig_b = go.Figure()
-        fig_b.add_trace(go.Scatter(
-            x=steps, y=b_values, mode="lines+markers+text",
-            text=[f"${v:,.0f}" for v in b_values], textposition="top center",
-            line=dict(width=3, color="#2196f3"), marker=dict(size=10), name="Baseline (b)"
-        ))
-        fig_b.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-        fig_b.update_layout(title=f"{selected} — Baseline Evolution",
-            xaxis_title="Rollover Step", yaxis_title="Baseline (b) Value ($)", height=350)
-        st.plotly_chart(fig_b, use_container_width=True)
-
-    c_values = [h["c"] for h in history if h["c"] is not None]
-    c_steps = [h["step"] for h in history if h["c"] is not None]
-    if c_values:
-        st.subheader("📊 Fix_C Evolution")
-        fig_c = go.Figure()
-        fig_c.add_trace(go.Bar(
-            x=c_steps, y=c_values, text=[f"${v:,.0f}" for v in c_values],
-            textposition="outside", marker_color="#ff9800", name="Fix_C"
-        ))
-        fig_c.update_layout(title=f"{selected} — Fix_C Changes Over Time",
-            xaxis_title="Rollover Step", yaxis_title="Fix_C ($)", height=300)
-        st.plotly_chart(fig_c, use_container_width=True)
 
 
 # ----------------------------------------------------------
