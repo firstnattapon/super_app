@@ -49,7 +49,7 @@ def chapter_chain_system():
         "🔬 Simulation (Ref)",
         "➕ Manage Data"
     ])
-
+  
     with tab1:
         _render_active_dashboard(data)
     with tab2:
