@@ -1,4 +1,3 @@
-
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -36,7 +35,7 @@ def chapter_chain_system():
         st.caption("ปรับ Baseline ให้ต่อเนื่องเมื่อเปลี่ยน fix_c และ re-center ราคา t")
     
     with st.expander("💡 Extrinsic Value (Ev) — ค่า K จ่ายทิ้ง"):
-        st.latex(r"\text{Extrinsic Value (Ev)} = \text{Premium} - \text{Intrinsic Value}")
+        st.latex(r"\\text{Extrinsic Value (Ev)} = \\text{Premium} - \\text{Intrinsic Value}")
         st.caption("มูลค่าทางเวลาที่จ่ายค่า LEAPS — เป็นต้นทุนที่ต้องชนะให้ได้จากระบบ Chain")
 
     data = load_trading_data()
@@ -233,61 +232,77 @@ def _render_engine_tab(data):
             st.markdown("---")
             # st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
 
-            p1, p2, p3, p4 = st.columns(4)
-            p1.metric("Shannon Profit", f"${rd['shannon_profit']:,.2f}", delta=f"P: {rd['p_old']} → {rd['p_new']}")
-            p2.metric("Harvest Profit", f"${rd['harvest_profit']:,.2f}", delta=f"σ={rd['sigma']}")
-            p3.metric("Hedge Cost", f"${rd['hedge_cost']:,.2f}", delta=f"-{rd['hedge_ratio']}x Put", delta_color="inverse")
+            st.caption("ผลลัพธ์ของ Round นี้ (แก้ไขได้ก่อน Commit):")
             
-            # Allow editing Surplus
+            # --- Upper Row: PnL Components ---
+            p1, p2, p3, p4 = st.columns(4)
+            
+            new_shannon = p1.number_input(
+                "Shannon Profit",
+                value=float(rd['shannon_profit']),
+                step=10.0, format="%.2f", key="preview_shannon"
+            )
+            new_harvest = p2.number_input(
+                "Harvest Profit",
+                value=float(rd['harvest_profit']),
+                step=10.0, format="%.2f", key="preview_harvest"
+            )
+            new_hedge = p3.number_input(
+                "Hedge Cost",
+                value=float(rd['hedge_cost']),
+                step=10.0, format="%.2f", key="preview_hedge"
+            )
             new_surplus = p4.number_input(
                 "Surplus (Free Risk)", 
                 value=float(rd['surplus']), 
-                step=10.0, 
-                format="%.2f",
-                key="preview_surplus"
+                step=10.0, format="%.2f", key="preview_surplus"
             )
 
-            st.caption("ผลลัพธ์ของ Round นี้ (แก้ไขได้ก่อน Commit):")
+            # --- Lower Row: State Variables ---
             p5, p6, p7, p8 = st.columns(4)
             
-            # Editable fix_c
             new_c_after = p5.number_input(
                 "New fix_c", 
                 value=float(rd['c_after']), 
-                step=10.0, 
-                format="%.0f",
-                key="preview_c_after"
+                step=100.0, format="%.0f", key="preview_c_after"
             )
-            # Editable Price
             new_p_new = p6.number_input(
                 "New Price", 
                 value=float(rd['p_new']), 
-                step=0.1, 
-                format="%.2f",
-                key="preview_p_new"
+                step=0.1, format="%.2f", key="preview_p_new"
             )
-            # Editable Baseline
             new_b_after = p7.number_input(
                 "New Baseline", 
                 value=float(rd['b_after']), 
-                step=0.1, 
-                format="%.2f",
-                key="preview_b_after"
+                step=0.1, format="%.2f", key="preview_b_after"
+            )
+            new_sigma = p8.number_input(
+                "Volatility (σ)",
+                value=float(rd['sigma']),
+                step=0.01, format="%.2f", key="preview_sigma"
             )
             
-            p8.empty()
             # Show diffs for reference
+            p1.caption(f"Ref: P {rd['p_old']} → {rd['p_new']}")
+            p2.caption(f"Ref: σ={rd['sigma']}")
+            p3.caption(f"Ref: -{rd['hedge_ratio']}x Put")
             p5.caption(f"Was: ${rd['c_before']:,.0f} > ${rd['c_after']:,.0f}")
             p6.caption(f"Was: ${rd['p_old']:,.2f} > ${rd['p_new']:,.2f}")
             p7.caption(f"Was: ${rd['b_before']:,.2f} > ${rd['b_after']:,.2f}")
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 # Update rd with edited values
+                rd['shannon_profit'] = new_shannon
+                rd['harvest_profit'] = new_harvest
+                rd['hedge_cost'] = new_hedge
                 rd['surplus'] = new_surplus
+                
                 rd['c_after'] = new_c_after
                 rd['p_new'] = new_p_new
                 rd['b_after'] = new_b_after
-                # Recalculate scale_up roughly based on change in c (optional but good for consistency)
+                rd['sigma'] = new_sigma
+                
+                # Recalculate scale_up roughly based on change in c
                 rd['scale_up'] = rd['c_after'] - rd['c_before']
 
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
