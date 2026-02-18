@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots 
+from plotly.subplots import make_subplots
 import re
 
 from flywheels import (
@@ -41,26 +41,23 @@ def chapter_chain_system():
     data = load_trading_data()
     tickers_list = get_tickers(data)
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "⚡ Active Dashboard",
-        "🔗 Run Round",
-        "🎱 Pool CF",
+        "⚡ Engine",
         "📜 History",
         "🔬 Simulation (Ref)",
         "➕ Manage Data"
     ])
-  
+
     with tab1:
         _render_active_dashboard(data)
     with tab2:
-        _render_run_round_form(data)
+        _render_engine_tab(data)
     with tab3:
-        _render_pool_cf_dashboard(data)
-    with tab4:
         _render_rollover_history(tickers_list)
-    with tab5:
+    with tab4:
         _render_chain_flow()
-    with tab6:
+    with tab5:
         _render_manage_data(data)
 
 
@@ -145,90 +142,146 @@ def _render_active_dashboard(data):
 
 
 # ----------------------------------------------------------
-# TAB: Run Round
+# TAB: ⚡ Engine  (Run Round + Pool CF — merged)
 # ----------------------------------------------------------
-def _render_run_round_form(data):
-    """Select ticker → input P_new + σ → preview → Commit Round."""
+def _render_engine_tab(data):
+    """Unified Engine: Run Chain Round (left) + Pool CF management (right)."""
     tickers_list = get_tickers(data)
+    pool_cf = data.get("global_pool_cf", 0.0)
+
+    # ── Top bar: Pool CF balance — always visible ──
+    with st.container(border=True):
+        top1, top2, top3 = st.columns(3)
+        top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
+        top2.metric("Tickers", str(len(tickers_list)))
+        total_rounds = sum(len(t.get("rounds", [])) for t in tickers_list)
+        top3.metric("Total Rounds", str(total_rounds))
+
     if not tickers_list:
         st.info("ยังไม่มี ticker — เพิ่มที่แท็บ ➕ Manage Data ก่อน")
         return
 
-    st.subheader("⚡ Run Chain Round")
-    st.markdown("เลือก Ticker → ใส่ราคาปัจจุบัน → ระบบคำนวณอัตโนมัติ → กด Commit")
+    # ── Two-column layout: Run Round | Pool CF ──
+    col_left, col_right = st.columns([3, 2], gap="large")
 
-    ticker_names = [d.get("ticker", "???") for d in tickers_list]
-    selected = st.selectbox("เลือก Ticker", ticker_names, key="run_round_ticker")
-    idx = ticker_names.index(selected)
-    t_data = tickers_list[idx]
-    state = t_data.get("current_state", {})
+    # ==============================
+    # LEFT COLUMN — Run Chain Round
+    # ==============================
+    with col_left:
+        st.subheader("🔗 Run Chain Round")
+        st.caption("เลือก Ticker → ใส่ราคาปัจจุบัน → ระบบคำนวณอัตโนมัติ → กด Commit")
 
-    with st.container(border=True):
-        st.caption(f"🔵 สถานะปัจจุบัน — {selected}")
-        sc1, sc2, sc3, sc4 = st.columns(4)
-        sc1.metric("fix_c", f"${state.get('fix_c', 0):,.2f}")
-        sc2.metric("Price (t)", f"${state.get('price', 0):,.2f}")
-        sc3.metric("Baseline (b)", f"${state.get('baseline', 0):,.2f}")
-        sc4.metric("Rounds", str(len(t_data.get("rounds", []))))
+        ticker_names = [d.get("ticker", "???") for d in tickers_list]
+        selected = st.selectbox("เลือก Ticker", ticker_names, key="run_round_ticker")
+        idx = ticker_names.index(selected)
+        t_data = tickers_list[idx]
+        state = t_data.get("current_state", {})
 
-    settings = data.get("settings", {})
-    default_sigma = settings.get("default_sigma", 0.5)
-    default_hr = settings.get("default_hedge_ratio", 2.0)
+        with st.container(border=True):
+            st.caption(f"🔵 สถานะปัจจุบัน — {selected}")
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("fix_c", f"${state.get('fix_c', 0):,.2f}")
+            sc2.metric("Price (t)", f"${state.get('price', 0):,.2f}")
+            sc3.metric("Baseline (b)", f"${state.get('baseline', 0):,.2f}")
+            sc4.metric("Rounds", str(len(t_data.get("rounds", []))))
 
-    with st.form("run_round_form", clear_on_submit=False):
-        st.markdown("##### 📊 Input — ราคาและ Config")
-        r1, r2, r3 = st.columns(3)
-        with r1:
-            p_new = st.number_input(
-                f"ราคาใหม่ P (ปัจจุบัน t = ${state.get('price', 0):.2f})",
-                min_value=0.01, value=round(state.get("price", 10.0) * 1.1, 2), step=1.0, key="rr_pnew")
-        with r2:
-            sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05, key="rr_sigma")
-        with r3:
-            hedge_ratio = st.number_input("Hedge Ratio (x Put)", min_value=0.0, value=default_hr, step=0.5, key="rr_hr")
-        preview_btn = st.form_submit_button("🔍 Preview Calculation")
+        settings = data.get("settings", {})
+        default_sigma = settings.get("default_sigma", 0.5)
+        default_hr = settings.get("default_hedge_ratio", 2.0)
 
-    if preview_btn and p_new > 0:
-        preview = run_chain_round(state, p_new, sigma, hedge_ratio)
-        if preview is None:
-            st.error("Invalid price — cannot run round")
-            return
-        st.session_state["_pending_round"] = preview
-        st.session_state["_pending_ticker_idx"] = idx
-        st.session_state["_pending_ticker_name"] = selected
+        with st.form("run_round_form", clear_on_submit=False):
+            st.markdown("##### 📊 Input — ราคาและ Config")
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                p_new = st.number_input(
+                    f"ราคาใหม่ P (ปัจจุบัน t = ${state.get('price', 0):.2f})",
+                    min_value=0.01, value=round(state.get("price", 10.0) * 1.1, 2), step=1.0, key="rr_pnew")
+            with r2:
+                sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05, key="rr_sigma")
+            with r3:
+                hedge_ratio = st.number_input("Hedge Ratio (x Put)", min_value=0.0, value=default_hr, step=0.5, key="rr_hr")
+            preview_btn = st.form_submit_button("🔍 Preview Calculation")
 
-    if "_pending_round" in st.session_state and st.session_state.get("_pending_ticker_name") == selected:
-        rd = st.session_state["_pending_round"]
-        st.markdown("---")
-        st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
+        if preview_btn and p_new > 0:
+            preview = run_chain_round(state, p_new, sigma, hedge_ratio)
+            if preview is None:
+                st.error("Invalid price — cannot run round")
+                return
+            st.session_state["_pending_round"] = preview
+            st.session_state["_pending_ticker_idx"] = idx
+            st.session_state["_pending_ticker_name"] = selected
 
-        p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Shannon Profit", f"${rd['shannon_profit']:,.2f}", delta=f"P: {rd['p_old']} → {rd['p_new']}")
-        p2.metric("Harvest Profit", f"${rd['harvest_profit']:,.2f}", delta=f"σ={rd['sigma']}")
-        p3.metric("Hedge Cost", f"${rd['hedge_cost']:,.2f}", delta=f"-{rd['hedge_ratio']}x Put", delta_color="inverse")
-        p4.metric("Surplus (Free Risk)", f"${rd['surplus']:,.2f}",
-                   delta="Scale Up!" if rd['surplus'] > 0 else "Deficit",
-                   delta_color="normal" if rd['surplus'] > 0 else "inverse")
+        if "_pending_round" in st.session_state and st.session_state.get("_pending_ticker_name") == selected:
+            rd = st.session_state["_pending_round"]
+            st.markdown("---")
+            st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
 
-        p5, p6, p7 = st.columns(3)
-        p5.metric("fix_c After", f"${rd['c_after']:,.2f}",
-                   delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
-        p6.metric("Baseline After", f"${rd['b_after']:,.2f}")
-        p7.metric("Price After (re-centered)", f"${rd['p_new']:,.2f}")
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Shannon Profit", f"${rd['shannon_profit']:,.2f}", delta=f"P: {rd['p_old']} → {rd['p_new']}")
+            p2.metric("Harvest Profit", f"${rd['harvest_profit']:,.2f}", delta=f"σ={rd['sigma']}")
+            p3.metric("Hedge Cost", f"${rd['hedge_cost']:,.2f}", delta=f"-{rd['hedge_ratio']}x Put", delta_color="inverse")
+            p4.metric("Surplus (Free Risk)", f"${rd['surplus']:,.2f}",
+                       delta="Scale Up!" if rd['surplus'] > 0 else "Deficit",
+                       delta_color="normal" if rd['surplus'] > 0 else "inverse")
 
-        if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
-            commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-            del st.session_state["_pending_round"]
-            del st.session_state["_pending_ticker_idx"]
-            del st.session_state["_pending_ticker_name"]
-            st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
-            st.rerun()
+            p5, p6, p7 = st.columns(3)
+            p5.metric("fix_c After", f"${rd['c_after']:,.2f}",
+                       delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
+            p6.metric("Baseline After", f"${rd['b_after']:,.2f}")
+            p7.metric("Price After (re-centered)", f"${rd['p_new']:,.2f}")
 
-    # --- Round History for this ticker (IMPROVED column grouping) ---
-    rounds = t_data.get("rounds", [])
+            if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
+                commit_round(data, st.session_state["_pending_ticker_idx"], rd)
+                del st.session_state["_pending_round"]
+                del st.session_state["_pending_ticker_idx"]
+                del st.session_state["_pending_ticker_name"]
+                st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
+                st.rerun()
+
+    # ==============================
+    # RIGHT COLUMN — Pool CF
+    # ==============================
+    with col_right:
+        st.subheader("🎱 Pool CF")
+        st.caption("กำไรจาก Put ระเบิดตอน Crash → War Chest → Deploy เพิ่ม fix_c")
+
+        with st.form("add_pool_cf_form", clear_on_submit=True):
+            st.markdown("##### ➕ Add to Pool")
+            amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
+            note = st.text_input("Note", placeholder="e.g. Put payoff from FLNC crash")
+            if st.form_submit_button("💰 Add to Pool", type="primary"):
+                if amount > 0:
+                    data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
+                    save_trading_data(data)
+                    st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
+                    st.rerun()
+
+        st.divider()
+
+        if pool_cf > 0 and tickers_list:
+            st.markdown("##### 🚀 Deploy → Ticker")
+            ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
+            with st.form("deploy_pool_form", clear_on_submit=True):
+                deploy_ticker = st.selectbox("Deploy to", ticker_names_deploy, key="deploy_ticker")
+                deploy_amount = st.number_input("Amount ($)", min_value=0.0, max_value=float(pool_cf),
+                                                 value=0.0, step=100.0, key="deploy_amt")
+                if st.form_submit_button("🚀 Deploy", type="primary"):
+                    if deploy_amount > 0:
+                        d_idx = ticker_names_deploy.index(deploy_ticker)
+                        data, success = deploy_pool_cf(data, d_idx, deploy_amount)
+                        if success:
+                            st.success(f"✅ Deployed ${deploy_amount:,.2f} to {deploy_ticker}")
+                            st.rerun()
+                        else:
+                            st.error("❌ Insufficient Pool CF balance")
+        elif pool_cf <= 0:
+            st.info("Pool CF ว่าง — ยังไม่มีเงินสำหรับ Deploy")
+
+    # ── Chain History — full width below columns ──
+    rounds = t_data.get("rounds", []) if tickers_list else []
     if rounds:
         st.divider()
-        st.subheader("📋 Chain History — ลูกโซ่ทุก Round")
+        st.subheader(f"📋 Chain History — {selected}")
         rows = []
         for rd in rounds:
             shannon = rd.get("shannon_profit", 0)
@@ -262,63 +315,6 @@ def _render_run_round_form(data):
                 "σ": f"{rd.get('sigma', 0):.2f}",
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-# ----------------------------------------------------------
-# TAB: Pool CF Dashboard
-# ----------------------------------------------------------
-def _render_pool_cf_dashboard(data):
-    """Global Pool CF management — view balance + deploy to tickers."""
-    tickers_list = get_tickers(data)
-    pool_cf = data.get("global_pool_cf", 0.0)
-
-    st.subheader("🎱 Global Pool CF — War Chest")
-    st.markdown("""
-    **Pool CF** = กำไรจาก Put ระเบิดตอน Crash → แยกเก็บเป็น **Emergency Fund / War Chest**
-    
-    ใช้ Deploy เพื่อเพิ่ม fix_c ให้ ticker ที่ราคาต่ำ (Buy the Dip).
-    """)
-
-    m1, m2 = st.columns(2)
-    m1.metric("💰 Pool CF Balance", f"${pool_cf:,.2f}")
-    m2.metric("Tickers", str(len(tickers_list)))
-
-    st.divider()
-
-    with st.form("add_pool_cf_form", clear_on_submit=True):
-        st.markdown("##### ➕ Add to Pool CF (e.g., Put payoff profit)")
-        amount = st.number_input("Amount to add ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
-        note = st.text_input("Note (optional)", placeholder="e.g. Put payoff from FLNC crash")
-        if st.form_submit_button("💰 Add to Pool", type="primary"):
-            if amount > 0:
-                data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
-                save_trading_data(data)
-                st.success(f"✅ Added ${amount:,.2f} to Pool CF. New balance: ${data['global_pool_cf']:,.2f}")
-                st.rerun()
-
-    st.divider()
-
-    if pool_cf > 0 and tickers_list:
-        st.subheader("🚀 Deploy from Pool CF → Ticker")
-        ticker_names = [d.get("ticker", "???") for d in tickers_list]
-        with st.form("deploy_pool_form", clear_on_submit=True):
-            dp1, dp2 = st.columns(2)
-            with dp1:
-                deploy_ticker = st.selectbox("Deploy to Ticker", ticker_names, key="deploy_ticker")
-            with dp2:
-                deploy_amount = st.number_input("Amount ($)", min_value=0.0, max_value=float(pool_cf),
-                                                 value=0.0, step=100.0, key="deploy_amt")
-            if st.form_submit_button("🚀 Deploy", type="primary"):
-                if deploy_amount > 0:
-                    d_idx = ticker_names.index(deploy_ticker)
-                    data, success = deploy_pool_cf(data, d_idx, deploy_amount)
-                    if success:
-                        st.success(f"✅ Deployed ${deploy_amount:,.2f} to {deploy_ticker}")
-                        st.rerun()
-                    else:
-                        st.error("❌ Insufficient Pool CF balance")
-    elif pool_cf <= 0:
-        st.info("Pool CF ว่าง — ยังไม่มีเงินสำหรับ Deploy")
 
 
 # ----------------------------------------------------------
