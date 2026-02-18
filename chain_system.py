@@ -46,7 +46,7 @@ def chapter_chain_system():
     tab1, tab2, tab4, tab5 = st.tabs([
         "⚡ Active Dashboard",
         "⚡ Engine & History",
-        "🔬 Simulation (Ref)",
+        "Payoff Profile 🔗 Run Chain Round",
         "➕ Manage Data"
     ])
 
@@ -55,7 +55,7 @@ def chapter_chain_system():
     with tab2:
         _render_engine_tab(data)
     with tab4:
-        _render_chain_flow()
+        _render_payoff_profile_tab(data)
     with tab5:
         _render_manage_data(data)
 
@@ -418,9 +418,7 @@ def _render_engine_tab(data):
 def _render_consolidated_history(t_data):
     """
     Combined History View:
-    1. Ev Battle (Burn vs Profit)
-    2. Evolution Charts (c, b)
-    3. Clean Data Table (Action Focus)
+    Table only (Graphs moved to Payoff Profile).
     """
     ticker = t_data.get("ticker", "???")
     rounds = t_data.get("rounds", [])
@@ -436,51 +434,23 @@ def _render_consolidated_history(t_data):
         else:
             st.info("No history available yet.")
         return
-
-    # 1. Prepare Data for Charts
-    # Aggregate cumulative metrics
-    cum_ev_burn = 0.0
-    cum_profit = 0.0
-    chart_data = []
     
     table_rows = []
 
     for i, rd in enumerate(rounds):
         hedge = rd.get("hedge_cost", 0.0)
-        # Ev Change: if negative, it's a payment/deduction. If positive (hedge cost), it's a burn.
-        # Logic: Hedge Cost is burn (Red). Pay Ev is recovery (Green).
-        
-        # Determine Ev Impact visually
+        # Check action type
         ev_impact = 0.0
         ev_label = "—"
         
-        # Check action type
         if "Pay Ev" in rd.get("note", "") or rd.get("ev_change", 0) < 0:
-             # Payment
              payment = abs(rd.get("ev_change", 0))
              ev_impact = -payment
              ev_label = f"🟢 Paid -${payment:,.0f}"
         elif hedge > 0:
-             # Standard Round
              ev_impact = hedge
              ev_label = f"🔴 Burn -${hedge:,.0f}"
-             cum_ev_burn += hedge
-        
-        shannon = rd.get("shannon_profit", 0)
-        harvest = rd.get("harvest_profit", 0)
-        total_income = shannon + harvest
-        if total_income > 0:
-            cum_profit += total_income
-            
-        chart_data.append({
-            "Round": i+1,
-            "Burn": cum_ev_burn,
-            "Profit": cum_profit,
-            "c": rd.get("c_after", 0),
-            "b": rd.get("b_after", 0)
-        })
 
-        # Table Row
         action_short = rd.get("action", "Round")
         if rd.get("scale_up", 0) > 0:
             action_short = f"Scale +${rd['scale_up']:,.0f}"
@@ -498,37 +468,10 @@ def _render_consolidated_history(t_data):
             "Note": rd.get("note", "")
         })
 
-    # 2. Render Charts (Side-by-Side)
-    c1, c2 = st.columns(2)
-    
-    df_chart = pd.DataFrame(chart_data)
-    
-    with c1:
-        # Ev Battle Chart
-        fig_ev = go.Figure()
-        fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Burn"], 
-                                    mode='lines', name='Cum. Ev Burn', line=dict(color='#ff1744', width=2)))
-        fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Profit"], 
-                                    mode='lines', name='Cum. Harvest', line=dict(color='#00c853', width=2)))
-        fig_ev.update_layout(title="⚔️ Ev Battle: Cost vs. Harvest", 
-                             xaxis_title="Round", yaxis_title="Cumulative ($)", margin=dict(t=30, b=0, l=0, r=0))
-        st.plotly_chart(fig_ev, use_container_width=True)
-
-    with c2:
-        # Evolution Chart
-        fig_evo = make_subplots(specs=[[{"secondary_y": True}]])
-        fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["c"], 
-                                     name="fix_c", line=dict(color='#ff9800')), secondary_y=False)
-        fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["b"], 
-                                     name="Baseline", line=dict(color='#2196f3', dash='dot')), secondary_y=True)
-        fig_evo.update_layout(title="📈 Growth Evolution (c & b)", margin=dict(t=30, b=0, l=0, r=0))
-        st.plotly_chart(fig_evo, use_container_width=True)
-
-    # 3. Render Table
+    # Render Table
     st.markdown("##### 🧾 Detailed Log")
     df_table = pd.DataFrame(table_rows[::-1]) # Reverse order (Newest first)
     
-    # Custom styling function (optional, but staying simple for performance)
     st.dataframe(
         df_table, 
         use_container_width=True, 
@@ -543,26 +486,108 @@ def _render_consolidated_history(t_data):
 # ----------------------------------------------------------
 # TAB: Chain Flow (Simulation Reference)
 # ----------------------------------------------------------
-def _render_chain_flow():
-    """Preserved: Stage 1-4 simulation with Sankey + Payoff charts."""
+# ----------------------------------------------------------
+# TAB: Payoff Profile 🔗 Run Chain Round
+# ----------------------------------------------------------
+def _render_payoff_profile_tab(data):
+    """
+    Visual Analytics Hub:
+    1. History Graphs (Ev Battle, Growth) - Linked to Selected Ticker
+    2. Payoff Profile & Sankey (Simulation/Projections)
+    """
+    tickers_list = get_tickers(data)
+    
+    # Try to get selected ticker from Session State
+    selected_ticker = st.session_state.get("run_round_ticker")
+    t_data = None
+    
+    if selected_ticker:
+        for t in tickers_list:
+            if t["ticker"] == selected_ticker:
+                t_data = t
+                break
+    
+    if not t_data:
+        st.info("👈 Please select a Ticker in the 'Engine & History' tab first.")
+        if tickers_list:
+            t_data = tickers_list[0]
+            st.caption(f"Showing default: {t_data['ticker']}")
+        else:
+            return
 
+    # 📊 SECTION 1: HISTORY GRAPHS (Moved from Engine)
+    st.subheader(f"📈 History Analysis: {t_data['ticker']}")
+    
+    rounds = t_data.get("rounds", [])
+    if rounds:
+        cum_ev_burn = 0.0
+        cum_profit = 0.0
+        chart_data = []
+
+        for i, rd in enumerate(rounds):
+            hedge = rd.get("hedge_cost", 0.0)
+            shannon = rd.get("shannon_profit", 0)
+            harvest = rd.get("harvest_profit", 0)
+            total_income = shannon + harvest
+            
+            if hedge > 0:
+                 cum_ev_burn += hedge
+            if total_income > 0:
+                cum_profit += total_income
+                
+            chart_data.append({
+                "Round": i+1,
+                "Burn": cum_ev_burn,
+                "Profit": cum_profit,
+                "c": rd.get("c_after", 0),
+                "b": rd.get("b_after", 0)
+            })
+            
+        df_chart = pd.DataFrame(chart_data)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            fig_ev = go.Figure()
+            fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Burn"], 
+                                        mode='lines', name='Cum. Ev Burn', line=dict(color='#ff1744', width=2)))
+            fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Profit"], 
+                                        mode='lines', name='Cum. Harvest', line=dict(color='#00c853', width=2)))
+            fig_ev.update_layout(title="⚔️ Ev Battle: Cost vs. Harvest", 
+                                 xaxis_title="Round", yaxis_title="Cumulative ($)", margin=dict(t=30, b=0, l=0, r=0))
+            st.plotly_chart(fig_ev, use_container_width=True)
+
+        with c2:
+            fig_evo = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["c"], 
+                                         name="fix_c", line=dict(color='#ff9800')), secondary_y=False)
+            fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["b"], 
+                                         name="Baseline", line=dict(color='#2196f3', dash='dot')), secondary_y=True)
+            fig_evo.update_layout(title="📈 Growth Evolution (c & b)", margin=dict(t=30, b=0, l=0, r=0))
+            st.plotly_chart(fig_evo, use_container_width=True)
+    else:
+        st.warning("No history data to plot.")
+
+    st.divider()
+
+    # 📊 SECTION 2: PAYOFF PROFILE
+    st.subheader(f"📐 Payoff Profile Simulator")
+    st.caption("จำลองโครงสร้างผลตอบแทน (อ้างอิงสถานะปัจจุบันได้)")
+
+    cur_state = t_data.get("current_state", {})
+    def_c = cur_state.get("fix_c", 10000.0)
+    def_p = cur_state.get("price", 100.0)
+    
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("1. Shannon Config")
-        fix_c = st.number_input("Fixed Capital ($)", 1000, 100000, 10000, 1000, key="chain_c")
-        P0 = st.number_input("Initial Price ($)", 10, 500, 100, 10, key="chain_p0")
-        sigma = st.slider("Volatility (σ)", 0.1, 2.0, 0.5, 0.1, key="chain_sig")
+        fix_c = st.number_input("Fixed Capital ($)", 1000.0, 1000000.0, float(def_c), 1000.0, key="chain_c_payoff")
+        P0 = st.number_input("Current Price ($)", 0.1, 10000.0, float(def_p), 1.0, key="chain_p0_payoff")
+        sigma = st.slider("Volatility (σ)", 0.1, 2.0, 0.5, 0.1, key="chain_sig_payoff")
 
     with col2:
-        st.subheader("2. Hedge Config (Put)")
-        hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 2.0, 1.0, 0.1)
+        hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 3.0, 2.0, 0.1, key="chain_hr_payoff")
         qty_puts = (fix_c / P0) * hedge_ratio
-        st.markdown("---")
-        st.subheader("3. Pool CF & Crash Sim")
-        deploy_ratio = st.slider("Deploy Ratio (from Pool CF)", 0.0, 1.0, 0.7, 0.1,
-                                 help="% of Net Put Profit to Deploy")
-        crash_price_pct = st.slider("Simulate Crash Price (%)", 30, 100, 50, 5,
-                                    help="% of P0")
+        
+        crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
         P_crash = P0 * (crash_price_pct / 100.0)
         st.metric("Crash Price Scenario", f"${P_crash:.1f}")
 
@@ -573,62 +598,52 @@ def _render_chain_flow():
     put_premium = black_scholes(P0, put_strike, T, r, sigma, 'put')
     cost_hedge = qty_puts * put_premium
     harvest_profit = fix_c * 0.5 * (sigma ** 2) * T
-
-    st.divider()
-
-    # Stage 1-3: Bull/Sideway
-    st.subheader("Stage 1-3: Bull/Sideway Flow")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("1. Harvest Profit (Est.)", f"${harvest_profit:.2f}", f"+ Volatility {sigma}")
-    c2.metric("2. Hedge Cost", f"${cost_hedge:.2f}", f"- Put Premium")
     surplus = harvest_profit - cost_hedge
-    c3.metric("3. Surplus (Fuel)", f"${surplus:.2f}",
-              delta="Scale Up Possible" if surplus > 0 else "Deficit",
-              delta_color="normal" if surplus > 0 else "inverse")
 
-    # Stage 4: Crash Scenario
+    prices = np.linspace(P0 * 0.2, P0 * 1.5, 200)
+    base_80_20 = fix_c * np.log(prices / P0)
+    vol_premium = fix_c * 0.5 * (sigma ** 2) * T
+    dynamic_shield = base_80_20 + vol_premium
+    put_val = qty_puts * np.maximum(0, put_strike - prices)
+    shielded_80_20 = dynamic_shield + put_val - cost_hedge
+
+    fig_payoff = go.Figure()
+    fig_payoff.add_trace(go.Scatter(x=prices, y=base_80_20, name="Base 80/20 (Unhedged)",
+        line=dict(width=2, color='#ff9800')))
+    fig_payoff.add_trace(go.Scatter(x=prices, y=dynamic_shield, name="Dynamic (+Vol)",
+        line=dict(width=2, color='#2196f3', dash='dash')))
+    fig_payoff.add_trace(go.Scatter(x=prices, y=shielded_80_20, name="Shielded (+Puts)",
+        line=dict(width=3, color='#00c853')))
+    fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
+                         annotation_text=f"Crash {P_crash:.1f}")
+    fig_payoff.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+    fig_payoff.update_layout(
+        title="Payoff Profile (4-Line Model)",
+        xaxis_title="Price ($)", yaxis_title="P&L ($)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=500,
+    )
+    st.plotly_chart(fig_payoff, use_container_width=True)
+
     st.divider()
-    st.subheader(f"Stage 4: Downside Scenario (Price Crashes to ${P_crash:.1f})")
 
+    st.subheader("💧 Capital Flow (Sankey)")
+    
     put_payoff_crash = max(0, put_strike - P_crash)
     total_put_payoff = qty_puts * put_payoff_crash
-    shannon_price_term = fix_c * np.log(P_crash / P0) if P_crash > 0 else 0
-    shannon_harvest_term = fix_c * 0.5 * (sigma ** 2) * T
-    shannon_net_ref = shannon_price_term + shannon_harvest_term
+    
     new_strike_crash = P_crash * put_strike_pct
     rolldown_premium = black_scholes(P_crash, new_strike_crash, T, r, sigma, 'put')
     rolldown_cost = qty_puts * rolldown_premium
-    pool_cf_gross = total_put_payoff
-    pool_cf_net = pool_cf_gross - rolldown_cost
+    
+    deploy_ratio = 0.7
+    pool_cf_net = total_put_payoff - rolldown_cost
+    deploy_amount = pool_cf_net * deploy_ratio if pool_cf_net > 0 else 0
+    reserve_amount = pool_cf_net * (1 - deploy_ratio) if pool_cf_net > 0 else 0
 
-    s4a, s4b, s4c = st.columns(3)
-    s4a.metric("Put Payoff (Unit)", f"${put_payoff_crash:.2f}", f"Strike {put_strike:.1f}")
-    s4b.metric("Total Put Payoff", f"${total_put_payoff:,.2f}", f"{qty_puts:.1f} Puts")
-    s4c.metric("Shannon Net (Ref)", f"${shannon_net_ref:,.2f}",
-               f"Price {shannon_price_term:,.0f} + Harvest {shannon_harvest_term:,.0f}")
-
-    st.markdown("#### 🎱 Pool CF Dashboard")
-    with st.container(border=True):
-        pc1, pc2, pc3, pc4 = st.columns(4)
-        pc1.metric("Pool CF (Gross)", f"${pool_cf_gross:,.2f}")
-        pc2.metric("Re-Hedge Cost", f"${rolldown_cost:,.2f}", "- Cost to Armor")
-        pc3.metric("Pool CF (Net)", f"${pool_cf_net:,.2f}", "Available for Action")
-        deploy_amount = pool_cf_net * deploy_ratio if pool_cf_net > 0 else 0
-        reserve_amount = pool_cf_net * (1 - deploy_ratio) if pool_cf_net > 0 else 0
-        pc4.caption(f"Action (Ratio {deploy_ratio:.1f})")
-        pc4.write(f"**Deploy:** ${deploy_amount:,.2f}")
-        pc4.write(f"**Reserve:** ${reserve_amount:,.2f}")
-
-    if pool_cf_net > 0:
-        st.success(f"✅ **Survive & Thrive:** กำไรจาก Put (${pool_cf_net:,.2f}) พร้อม Deploy")
-    else:
-        st.error("⚠️ **Warning:** Payoff ไม่พอคลุมค่า Re-Hedge")
-
-    st.divider()
-
-    # Sankey Diagram
     labels = ["Shannon Income", "Harvest (Vol)", "Put Hedge", "Surplus", "Scale Up",
               "Put Payoff", "Pool CF", "Re-Hedge Cost", "Deploy", "Reserve"]
+    
     value_harvest = max(1, harvest_profit)
     value_hedge = max(0.01, cost_hedge)
     value_surplus = max(0.01, surplus) if surplus > 0 else 0.01
@@ -650,188 +665,8 @@ def _render_chain_flow():
         ),
         link=dict(source=sources, target=targets, value=values)
     )])
-    fig_sankey.update_layout(title="Full Cycle: Upside (Harvest) & Downside (Put → Pool CF)", height=400)
+    fig_sankey.update_layout(title="Full Cycle Flow", height=400)
     st.plotly_chart(fig_sankey, use_container_width=True)
-
-    # Payoff Chart — 4 Lines
-    st.subheader("Payoff Profile Ref")
-    prices = np.linspace(P0 * 0.2, P0 * 1.5, 200)
-    stock_only = fix_c * (prices / P0 - 1)
-    base_80_20 = fix_c * np.log(prices / P0)
-    vol_premium = fix_c * 0.5 * (sigma ** 2) * T
-    dynamic_shield = base_80_20 + vol_premium
-    put_val = qty_puts * np.maximum(0, put_strike - prices)
-    shielded_80_20 = dynamic_shield + put_val - cost_hedge
-
-    fig_payoff = go.Figure()
-    fig_payoff.add_trace(go.Scatter(x=prices, y=stock_only, name="Stock Only (Linear)",
-        line=dict(width=1, color='gray', dash='dot')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=base_80_20, name="เส้น Base 80/20 (Unhedged)",
-        line=dict(width=2, color='#ff9800')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=dynamic_shield, name="Dynamic Shield (+Vol Premium)",
-        line=dict(width=2, color='#2196f3', dash='dash')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=shielded_80_20, name="Shielded 80/20 (+2.0x Puts)",
-        line=dict(width=3, color='#00c853')))
-    fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
-                         annotation_text=f"Crash Scenario ({P_crash:.1f})")
-    fig_payoff.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
-    fig_payoff.update_layout(
-        title="Payoff Profile — 4 เส้นเปรียบเทียบ",
-        xaxis_title="Price ($)", yaxis_title="P&L ($)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-        height=500,
-    )
-    st.plotly_chart(fig_payoff, use_container_width=True)
-
-    # Chain Simulation (Round-by-Round)
-    st.divider()
-    st.subheader("🔗 ระบบลูกโซ่ — Chain Simulation (Round-by-Round)")
-    st.markdown("""
-    **หลักการ:** ราคาขึ้น → กำไร Shannon + Harvest → จ่ายค่า Put Hedge → 
-    **Surplus = Free Risk** → Scale Up fix_c ด้วย Rollover Equation
-    """)
-
-    config_key = f"{fix_c}_{P0}_{sigma}"
-    if "chain_rounds" not in st.session_state or st.session_state.get("_chain_config") != config_key:
-        st.session_state.chain_rounds = []
-        st.session_state.chain_current_c = fix_c
-        st.session_state.chain_current_t = float(P0)
-        st.session_state.chain_current_b = 0.0
-        st.session_state._chain_config = config_key
-
-    if st.button("🔄 Reset Chain", key="reset_chain"):
-        st.session_state.chain_rounds = []
-        st.session_state.chain_current_c = fix_c
-        st.session_state.chain_current_t = float(P0)
-        st.session_state.chain_current_b = 0.0
-        st.session_state._chain_config = config_key
-        st.rerun()
-
-    cur_c = st.session_state.chain_current_c
-    cur_t = st.session_state.chain_current_t
-    cur_b = st.session_state.chain_current_b
-
-    with st.container(border=True):
-        st.caption(f"🔵 สถานะปัจจุบัน — Round #{len(st.session_state.chain_rounds)}")
-        sc1, sc2, sc3 = st.columns(3)
-        sc1.metric("fix_c (ทุนคงที่)", f"${cur_c:,.2f}")
-        sc2.metric("t (ราคาอ้างอิง)", f"${cur_t:,.2f}")
-        sc3.metric("b (Baseline)", f"${cur_b:,.2f}")
-
-    with st.form("chain_round_form", clear_on_submit=True):
-        st.markdown("##### ➕ เพิ่ม Round ใหม่ — ราคาเปลี่ยนจาก t → P")
-        cr1, cr2 = st.columns(2)
-        with cr1:
-            new_price = st.number_input(
-                f"ราคาใหม่ P (ปัจจุบัน t = ${cur_t:.2f})",
-                min_value=0.01, value=round(cur_t * 1.2, 2), step=1.0, key="chain_new_p")
-        with cr2:
-            chain_hedge_ratio = st.number_input(
-                "Hedge Ratio (x Put)", min_value=0.0, value=2.0, step=0.5,
-                key="chain_hr", help="2.0 = Over-hedge 2 เท่า (Anti-Fragile)")
-
-        submitted = st.form_submit_button("⚡ Run Chain Round", type="primary")
-        if submitted and new_price > 0:
-            P_new = new_price
-            shannon_profit = cur_c * np.log(P_new / cur_t) if P_new > 0 and cur_t > 0 else 0.0
-            harvest = cur_c * 0.5 * (sigma ** 2) * T
-            total_income = shannon_profit + harvest
-            qty = (cur_c / cur_t) * chain_hedge_ratio
-            strike = cur_t * put_strike_pct
-            premium = black_scholes(cur_t, strike, T, r, sigma, 'put')
-            hedge_cost = qty * premium
-            surplus_val = total_income - hedge_cost
-            scale_up = max(0, surplus_val)
-            new_c = cur_c + scale_up
-            new_t = P_new
-            rollover_delta = cur_c * np.log(P_new / cur_t) - new_c * np.log(P_new / new_t)
-            new_b = cur_b + rollover_delta
-
-            round_data = {
-                "round": len(st.session_state.chain_rounds) + 1,
-                "P_from": cur_t, "P_to": P_new,
-                "c_before": cur_c, "shannon": shannon_profit, "harvest": harvest,
-                "total_income": total_income, "hedge_cost": hedge_cost,
-                "surplus": surplus_val, "scale_up": scale_up,
-                "c_after": new_c, "t_after": new_t, "b_after": new_b,
-                "hedge_ratio": chain_hedge_ratio,
-            }
-            st.session_state.chain_rounds.append(round_data)
-            st.session_state.chain_current_c = new_c
-            st.session_state.chain_current_t = new_t
-            st.session_state.chain_current_b = new_b
-            st.rerun()
-
-    if st.session_state.chain_rounds:
-        st.subheader("📋 Chain History — ลูกโซ่ทุก Round")
-        rows = []
-        for rd in st.session_state.chain_rounds:
-            rows.append({
-                "Round": rd["round"],
-                "Price": f"${rd['P_from']:.2f} → ${rd['P_to']:.2f}",
-                # ── ทุน (c) — grouped ──
-                "c Before": f"${rd['c_before']:,.0f}",
-                "c After": f"${rd['c_after']:,.2f}",
-                "Scale Up": f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "—",
-                # ── รายรับ ──
-                "Shannon": f"${rd['shannon']:,.2f}",
-                "Harvest": f"${rd['harvest']:,.2f}",
-                "Total": f"${rd['total_income']:,.2f}",
-                # ── ค่าใช้จ่าย ──
-                "Hedge (x{:.1f})".format(rd["hedge_ratio"]): f"-${rd['hedge_cost']:,.2f}",
-                "Surplus": f"${rd['surplus']:,.2f}",
-                # ── Baseline ──
-                "b After": f"${rd['b_after']:,.2f}",
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-        rounds_x = [0] + [rd["round"] for rd in st.session_state.chain_rounds]
-        c_vals = [fix_c] + [rd["c_after"] for rd in st.session_state.chain_rounds]
-        b_vals = [0] + [rd["b_after"] for rd in st.session_state.chain_rounds]
-
-        fig_chain = make_subplots(rows=1, cols=2,
-                                  subplot_titles=["fix_c Growth (Free Risk)", "Baseline (b) Evolution"])
-        fig_chain.add_trace(go.Bar(
-            x=rounds_x, y=c_vals,
-            text=[f"${v:,.0f}" for v in c_vals], textposition="outside",
-            marker_color=["#ff9800"] + ["#00c853" if rd["surplus"] > 0 else "#ff1744"
-                                        for rd in st.session_state.chain_rounds],
-            name="fix_c",
-        ), row=1, col=1)
-        fig_chain.add_trace(go.Scatter(
-            x=rounds_x, y=b_vals,
-            mode="lines+markers+text",
-            text=[f"${v:,.0f}" for v in b_vals], textposition="top center",
-            line=dict(width=3, color="#2196f3"), marker=dict(size=10),
-            name="Baseline (b)",
-        ), row=1, col=2)
-        fig_chain.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=1, col=2)
-        fig_chain.update_layout(height=350, showlegend=False)
-        fig_chain.update_xaxes(title_text="Round", row=1, col=1)
-        fig_chain.update_xaxes(title_text="Round", row=1, col=2)
-        fig_chain.update_yaxes(title_text="fix_c ($)", row=1, col=1)
-        fig_chain.update_yaxes(title_text="b ($)", row=1, col=2)
-        st.plotly_chart(fig_chain, use_container_width=True)
-
-        total_scaled = st.session_state.chain_current_c - fix_c
-        st.success(f"""
-        **🔗 Chain Summary:**
-        เริ่มต้น fix_c = **${fix_c:,.2f}** → ปัจจุบัน fix_c = **${st.session_state.chain_current_c:,.2f}**
-        
-        ↑ Scale Up รวม **${total_scaled:,.2f}** (Free Risk — มาจากกำไรล้วนๆ ไม่ใช่เงินต้น!)
-        
-        Baseline (b) = **${st.session_state.chain_current_b:,.2f}** (Rollover Equation ต่อเนื่อง)
-        """)
-
-    st.info(f"""
-    **Chain System — Full Cycle Analysis:**
-    
-    **ขาขึ้น (Bull/Sideway):** Harvest (${harvest_profit:.2f}) จ่ายค่า Hedge (${cost_hedge:.2f}) เหลือ Surplus Scale Up.
-    
-    **ขาลง (Bear/Crash):** Put ทำงาน (${total_put_payoff:,.2f}) → เข้า Pool CF → หักลบ Re-Hedge (${rolldown_cost:,.2f})
-    → **Valid Net:** ${pool_cf_net:,.2f}
-    → **Deploy** ${deploy_amount:,.2f} ({(deploy_ratio*100):.0f}%) + **Reserve** ${reserve_amount:,.2f} ({(100-deploy_ratio*100):.0f}%)
-    """)
 
 
 # ----------------------------------------------------------
