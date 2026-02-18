@@ -392,10 +392,18 @@ def _render_engine_tab(data):
                     ], key="deploy_action_round")
                 with col_d2:
                     d_amt = st.number_input(
-                        f"Amount ($)", 
+                        f"Amount ($) [Pool Funding]", 
                         min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
                         value=0.0, step=100.0, key="deploy_amt_round"
                     )
+                
+                # Optional: Target fix_c for manual override (e.g. Value=2000 but Fund=200)
+                manual_new_c = st.number_input(
+                    "Target fix_c (Optional Override)", 
+                    min_value=0.0, value=0.0, step=100.0, 
+                    help="ระบุเป้าหมาย fix_c ใหม่ หากต้องการให้มูลค่าเพิ่มมากกว่าเงินที่เติม (เช่น Value +2000 แต่จ่ายจริง 200)"
+                )
+
                 d_note = st.text_input("Note", value="", placeholder="Reason for deployment...")
                 
                 submitted_deploy = st.form_submit_button("🔍 Preview Deployment")
@@ -407,8 +415,14 @@ def _render_engine_tab(data):
                 note_prefix = ""
 
                 if "Scale Up" in action_type:
-                    mock_scale_up = d_amt
-                    mock_new_c = cur_c + d_amt
+                    # Check for Manual Override
+                    if manual_new_c > cur_c:
+                        mock_new_c = manual_new_c
+                        mock_scale_up = manual_new_c - cur_c
+                    else:
+                        mock_scale_up = d_amt
+                        mock_new_c = cur_c + d_amt
+                        
                     note_prefix = "[Scale Up]"
                 elif "Buy Puts" in action_type:
                     note_prefix = "[Buy Puts]"
@@ -420,7 +434,11 @@ def _render_engine_tab(data):
 
                 final_note = f"{note_prefix} {d_note}".strip()
                 
-                st.info(f"💡 **Preview:** {action_type} ${d_amt:,.2f} to {deploy_ticker}")
+                # Show explicit message if Scale Up != Amount
+                if mock_scale_up > d_amt:
+                     st.info(f"💡 **Preview:** Scale Up +${mock_scale_up:,.0f} (Funded ${d_amt:,.0f}) to {deploy_ticker}")
+                else:
+                     st.info(f"💡 **Preview:** {action_type} ${d_amt:,.2f} to {deploy_ticker}")
                 
                 injection_round = {
                     "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
@@ -432,7 +450,7 @@ def _render_engine_tab(data):
                     "shannon_profit": 0.0,
                     "harvest_profit": 0.0,
                     "hedge_cost": 0.0,
-                    "surplus": d_amt if mock_scale_up > 0 else -d_amt,
+                    "surplus": mock_scale_up if mock_scale_up > 0 else -d_amt,
                     "scale_up": mock_scale_up,
                     "b_before": cur_b,
                     "b_after": cur_b,
