@@ -490,12 +490,12 @@ def _render_consolidated_history(t_data):
         table_rows.append({
             "Date": rd.get("date", "")[:10],  # Short date
             "Action": action_short,
-            "Sigma": f"{sigma_val:.2f}",
             "Price": f"${p_old:,.2f} > ${p_new:,.2f}",
             "fix_c": f"${c_before:,.0f} > ${c_after:,.0f}",
             "b": f"${b_before:,.2f} > ${b_after:,.2f}",
             "Hedge Cost": hedge_cost_label,
             "Net Result": f"${rd.get('surplus', 0):,.2f}",
+            "Sigma": f"{sigma_val:.2f}",
             "Note": rd.get("note", "")
         })
 
