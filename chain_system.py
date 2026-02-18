@@ -224,18 +224,17 @@ def _render_engine_tab(data):
                        delta="Scale Up!" if rd['surplus'] > 0 else "Deficit",
                        delta_color="normal" if rd['surplus'] > 0 else "inverse")
 
+            st.caption("ผลลัพธ์ของ Round นี้:")
             p5, p6, p7, p8 = st.columns(4)
-            p5.metric("fix_c After", f"${rd['c_after']:,.2f}",
+            p5.metric("c Before", f"${rd['c_before']:,.0f}")
+            p6.metric("c After", f"${rd['c_after']:,.2f}",
                        delta=f"+${rd['scale_up']:,.2f}" if rd['scale_up'] > 0 else "No change")
-            p6.metric("Baseline After", f"${rd['b_after']:,.2f}")
-            p7.metric("Price After (re-centered)", f"${rd['p_new']:,.2f}")
-            p8.metric("Surplus (Free Risk)", f"${rd['surplus']:,.2f}",
-                       delta="Scale Up" if rd['surplus'] > 0 else "Deficit",
-                       delta_color="normal" if rd['surplus'] > 0 else "inverse")
+            p7.metric("Price (New)", f"${rd['p_new']:,.2f}")
+            p8.metric("Baseline (New)", f"${rd['b_after']:,.2f}")
 
             if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-                del st.session_state["_pending_round"]
+                del st.session_session_state["_pending_round"]
                 del st.session_state["_pending_ticker_idx"]
                 del st.session_state["_pending_ticker_name"]
                 st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
