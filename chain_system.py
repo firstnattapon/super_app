@@ -16,6 +16,28 @@ from flywheels import (
 )
 
 
+
+# ============================================================
+# HELPER: Treasury Logging
+# ============================================================
+def log_treasury_event(data, category, amount, note=""):
+    """
+    Log global treasury events (Funding, Allocation, Expense, Deploy).
+    """
+    if "treasury_history" not in data:
+        data["treasury_history"] = []
+    
+    entry = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "category": category,
+        "amount": amount,
+        "pool_cf_balance": data.get("global_pool_cf", 0.0),
+        "ev_reserve_balance": data.get("global_ev_reserve", 0.0),
+        "note": note
+    }
+    data["treasury_history"].append(entry)
+
+
 # ============================================================
 # CHAPTER 8: CHAIN SYSTEM (ระบบลูกโซ่) — FINAL PRODUCT
 # ============================================================
@@ -333,7 +355,7 @@ def _render_engine_tab(data):
             
             if btn_add and amount > 0:
                 data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
-                note = "Funding Injection"
+                log_treasury_event(data, "Funding", amount, "Added to Pool CF")
                 save_trading_data(data)
                 st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
                 st.rerun()
@@ -436,6 +458,10 @@ def _render_engine_tab(data):
                         data["global_pool_cf"] -= amt
                         if "Pay Ev" in p_type:
                              t_data_deploy["current_state"]["cumulative_ev"] = max(0.0, cur_ev_debt - amt)
+                        
+                        # Log to Treasury (Outflow)
+                        log_treasury_event(data, "Deploy", -amt, f"Deployed to {deploy_ticker} ({p_type})")
+                        
                         commit_round(data, d_idx, p_inj)
                         del st.session_state["_pending_injection"]
                         del st.session_state["_pending_injection_idx"]
@@ -462,6 +488,7 @@ def _render_engine_tab(data):
                     if alloc_amt > 0 and pool_cf >= alloc_amt:
                         data["global_pool_cf"] -= alloc_amt
                         data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + alloc_amt
+                        log_treasury_event(data, "Allocation", alloc_amt, "Pool CF -> EV Reserve")
                         save_trading_data(data)
                         st.success(f"Allocated ${alloc_amt:,.2f} to Pool EV LEAPS")
                         st.rerun()
@@ -479,6 +506,10 @@ def _render_engine_tab(data):
                 if st.button("💾 Record Flow"):
                     # Additive logic: Balance += Input
                     data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + pay_leaps_amt
+                    
+                    cat = "Income" if pay_leaps_amt >= 0 else "Expense"
+                    log_treasury_event(data, cat, pay_leaps_amt, "Manual Adjustment/Payment")
+                    
                     save_trading_data(data)
                     
                     if pay_leaps_amt < 0:
@@ -490,10 +521,66 @@ def _render_engine_tab(data):
             st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
 
     # ==============================
-    # BOTTOM SECTION — Consolidated History
+    # BOTTOM SECTION — Consolidated History & Treasury Log
     # ==============================
     st.divider()
-    _render_consolidated_history(t_data)
+    
+    # Create two columns for history: Ticker Ops vs. Treasury Ops
+    h1, h2 = st.columns([3, 2], gap="large")
+    
+    with h1:
+        _render_consolidated_history(t_data)
+        
+    with h2:
+        _render_treasury_log(data)
+
+
+def _render_treasury_log(data):
+    """
+    Render Treasury & Operations History (Global Pool Events).
+    """
+    st.subheader("🏛️ Treasury & Ops History")
+    st.caption("ประวัติการจัดการเงินกองกลาง (Pool CF & EV Reserve)")
+    
+    history = data.get("treasury_history", [])
+    if not history:
+        st.info("No treasury operations yet.")
+        return
+        
+    # Prepare DataFrame
+    rows = []
+    for entry in history:
+        cat = entry.get("category", "General")
+        amt = entry.get("amount", 0.0)
+        
+        # Color coding for Amount
+        amt_str = f"${amt:,.2f}"
+        
+        rows.append({
+            "Date": entry.get("date", "")[5:], # Short date MM-DD HH:MM
+            "Action": cat,
+            "Amount": amt, 
+            "Pool CF": f"${entry.get('pool_cf_balance', 0):,.0f}",
+            "EV Res": f"${entry.get('ev_reserve_balance', 0):,.0f}",
+            "Note": entry.get("note", "")
+        })
+        
+    df = pd.DataFrame(rows[::-1]) # Newest first
+    
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Amount": st.column_config.NumberColumn(
+                "Amount", 
+                format="$%.2f",
+                step=100
+            ),
+            "Action": st.column_config.TextColumn("Action", width="small"),
+            "Note": st.column_config.TextColumn("Note", width="medium"),
+        }
+    )
 
 
 def _render_consolidated_history(t_data):
