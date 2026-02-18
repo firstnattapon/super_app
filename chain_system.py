@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -35,7 +36,7 @@ def chapter_chain_system():
         st.caption("ปรับ Baseline ให้ต่อเนื่องเมื่อเปลี่ยน fix_c และ re-center ราคา t")
     
     with st.expander("💡 Extrinsic Value (Ev) — ค่า K จ่ายทิ้ง"):
-        st.latex(r"\\text{Extrinsic Value (Ev)} = \\text{Premium} - \\text{Intrinsic Value}")
+        st.latex(r"\text{Extrinsic Value (Ev)} = \text{Premium} - \text{Intrinsic Value}")
         st.caption("มูลค่าทางเวลาที่จ่ายค่า LEAPS — เป็นต้นทุนที่ต้องชนะให้ได้จากระบบ Chain")
 
     data = load_trading_data()
@@ -471,14 +472,19 @@ def _render_engine_tab(data):
             st.markdown("##### 📤 Pay LEAPS (Expense)")
             col_c, col_d = st.columns(2)
             with col_c:
-                pay_leaps_amt = st.number_input("LEAPS Cost ($)", min_value=0.0, max_value=float(ev_reserve), step=100.0, key="pay_leaps_cost")
+                # Allow negative values (remove min/max), and allow pool to go negative
+                pay_leaps_amt = st.number_input("LEAPS Cost ($)", value=0.0, step=100.0, key="pay_leaps_cost")
             with col_d:
                 if st.button("📤 Pay LEAPS (Deduct)"):
-                    if pay_leaps_amt > 0 and ev_reserve >= pay_leaps_amt:
-                        data["global_ev_reserve"] -= pay_leaps_amt
-                        save_trading_data(data)
+                    # Simply subtract the amount (allow negative pool result)
+                    data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) - pay_leaps_amt
+                    save_trading_data(data)
+                    
+                    if pay_leaps_amt >= 0:
                         st.success(f"Paid LEAPS Cost ${pay_leaps_amt:,.2f} from Pool")
-                        st.rerun()
+                    else:
+                        st.success(f"Refunded ${abs(pay_leaps_amt):,.2f} to Pool (Negative Expense)")
+                    st.rerun()
             
             st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
 
