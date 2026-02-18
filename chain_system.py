@@ -169,7 +169,7 @@ def _render_engine_tab(data):
     with st.container(border=True):
         top1, top2, top3, top4 = st.columns(4)
         top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
-        top2.metric("🛡️ Ev Reserve", f"${ev_reserve:,.2f}")
+        top2.metric("🛡️ Pool LEAPS", f"${ev_reserve:,.2f}")
         top3.metric("Tickers", str(len(tickers_list)))
         total_rounds = sum(len(t.get("rounds", [])) for t in tickers_list)
         top4.metric("Total Rounds", str(total_rounds))
@@ -392,21 +392,40 @@ def _render_engine_tab(data):
         
         st.divider()
 
-        # ── 3. Ev Allocation (Sinking Fund) ──
-        with st.expander("🛡️ Manage Ev Sinking Fund"):
-            st.caption("จัดสรรเงินสำรองจ่ายค่า Time Value (Ev) ในอนาคต")
+        # ── 3. Pool LEAPS (Balance & Expenses) ──
+        with st.expander("🛡️ Manage Pool LEAPS (Income & Expenses)"):
+            st.caption("จัดการกองทุน LEAPS: รับเงินจาก Pool CF หรือ จ่ายค่า LEAPS")
+            
+            # Allocation (Income)
+            st.markdown("##### 📥 Allocate (Income from Pool CF)")
             col_a, col_b = st.columns(2)
             with col_a:
-                alloc_amt = st.number_input("Allocate Amount ($)", min_value=0.0, max_value=float(pool_cf), step=100.0, key="alloc_ev")
+                alloc_amt = st.number_input("Allocate Amount ($)", min_value=0.0, max_value=float(pool_cf), step=100.0, key="alloc_leaps")
             with col_b:
-                if st.button("Move Pool → Ev Reserve"):
+                if st.button("📥 Allocate to Pool LEAPS"):
                     if alloc_amt > 0 and pool_cf >= alloc_amt:
                         data["global_pool_cf"] -= alloc_amt
                         data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + alloc_amt
                         save_trading_data(data)
-                        st.success(f"Allocated ${alloc_amt:,.2f} to Ev Reserve")
+                        st.success(f"Allocated ${alloc_amt:,.2f} to Pool LEAPS")
                         st.rerun()
-            st.markdown(f"**Current Reserve:** `${ev_reserve:,.2f}`")
+            
+            st.divider()
+            
+            # Expenses (Pay LEAPS)
+            st.markdown("##### 📤 Pay LEAPS (Expense)")
+            col_c, col_d = st.columns(2)
+            with col_c:
+                pay_leaps_amt = st.number_input("LEAPS Cost ($)", min_value=0.0, max_value=float(ev_reserve), step=100.0, key="pay_leaps_cost")
+            with col_d:
+                if st.button("📤 Pay LEAPS (Deduct)"):
+                    if pay_leaps_amt > 0 and ev_reserve >= pay_leaps_amt:
+                        data["global_ev_reserve"] -= pay_leaps_amt
+                        save_trading_data(data)
+                        st.success(f"Paid LEAPS Cost ${pay_leaps_amt:,.2f} from Pool")
+                        st.rerun()
+            
+            st.markdown(f"**Current Pool LEAPS Balance:** `${ev_reserve:,.2f}`")
 
     # ==============================
     # BOTTOM SECTION — Consolidated History
@@ -744,4 +763,3 @@ def _render_manage_data(data):
                     save_trading_data(data)
                     st.success(f"Deleted {t['ticker']}")
                     st.rerun()
- 
