@@ -485,9 +485,12 @@ def _render_consolidated_history(t_data):
         b_before = rd.get('b_before', 0)
         b_after = rd.get('b_after', 0)
 
+        sigma_val = rd.get("sigma", 0.0)
+
         table_rows.append({
             "Date": rd.get("date", "")[:10],  # Short date
             "Action": action_short,
+            "Sigma": f"{sigma_val:.2f}",
             "Price": f"${p_old:,.2f} > ${p_new:,.2f}",
             "fix_c": f"${c_before:,.0f} > ${c_after:,.0f}",
             "b": f"${b_before:,.2f} > ${b_after:,.2f}",
@@ -506,7 +509,8 @@ def _render_consolidated_history(t_data):
         hide_index=True,
         column_config={
             "Hedge Cost": st.column_config.TextColumn("Hedge Cost", width="medium", help="Red = Premium Paid (Cost), Green = Pay/Recover"),
-            "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost")
+            "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost"),
+            "Sigma": st.column_config.TextColumn("σ", width="small", help="Volatility used for Harvest Calculation")
         }
     )
 
