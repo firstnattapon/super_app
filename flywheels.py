@@ -199,21 +199,65 @@ def commit_round(data, ticker_idx, round_data):
     return data
 
 
-def deploy_pool_cf(data, ticker_idx, amount):
-    """Deploy from global Pool CF to a specific ticker's fix_c."""
+def allocate_pool_funds(data, ticker_idx, amount, action_type="Scale Up", note=""):
+    """
+    Allocate funds from global Pool CF to a specific ticker with various objectives.
+    action_type:
+      - "Scale Up": Increase fix_c (Traditional Deploy)
+      - "Buy Puts": Expense for hedging (Reduces Pool, doesn't increase fix_c)
+      - "Buy Calls": Expense for speculation (Reduces Pool)
+      - "Pay Ev": Pay off cumulative Ev debt (Reduces Pool, Reduces cumulative_ev)
+    """
     if amount <= 0 or amount > data.get("global_pool_cf", 0):
         return data, False
+    
     ticker = data["tickers"][ticker_idx]
     state = ticker.get("current_state", {})
-    old_c = state.get("fix_c", 0)
-    state["fix_c"] = old_c + amount
-    ticker["current_state"] = state
-    # Sync Final
-    t = state.get("price", 0)
-    b = state.get("baseline", 0)
-    ticker["Final"] = f"{t}, {state['fix_c']:.2f}, {b:.2f}"
+    
+    # 1. Deduct from Global Pool
     data["global_pool_cf"] -= amount
+    
+    # 2. Apply Logic based on Action
+    if action_type == "Scale Up":
+        old_c = state.get("fix_c", 0)
+        state["fix_c"] = old_c + amount
+        # Sync Final
+        t = state.get("price", 0)
+        b = state.get("baseline", 0)
+        ticker["Final"] = f"{t}, {state['fix_c']:.2f}, {b:.2f}"
+    
+    elif action_type == "Pay Ev":
+        # Reducing the visible "Burn Rate" debt
+        old_ev_debt = state.get("cumulative_ev", 0.0)
+        state["cumulative_ev"] = max(0.0, old_ev_debt - amount)
+        
+    elif action_type in ["Buy Puts", "Buy Calls"]:
+        # Just an expenditure, maybe track in a log if we had one, 
+        # but for now it just consumes Pool CF to support the ticker positions.
+        pass
+        
+    ticker["current_state"] = state
     data["tickers"][ticker_idx] = ticker
+    
+    # 3. Log History (Optional but good for tracking)
+    # We'll use the legacy history log for now to show the event
+    h_idx = 1
+    while f"history_{h_idx}" in ticker:
+        h_idx += 1
+    
+    if action_type == "Scale Up":
+        desc = f"🎱 Pool Allocation: {action_type} +${amount:,.2f}"
+        calc = f"fix_c updated to {state['fix_c']:.2f} | Note: {note}"
+    elif action_type == "Pay Ev":
+        desc = f"🎱 Pool Allocation: {action_type} -${amount:,.2f}"
+        calc = f"Burn Rate (Ev Debt) reduced by {amount:,.2f} | Note: {note}"
+    else:
+        desc = f"🎱 Pool Allocation: {action_type} -${amount:,.2f}"
+        calc = f"Funded via Pool CF | Note: {note}"
+
+    ticker[f"history_{h_idx}"] = desc
+    ticker[f"history_{h_idx}.1"] = calc
+    
     save_trading_data(data)
     return data, True
 
