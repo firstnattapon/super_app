@@ -92,6 +92,22 @@ def _render_active_dashboard(data):
               delta=f"Lock {total_lock:,.0f} + IV {total_surplus:,.0f} + Ev {total_ev:,.0f}",
               delta_color="normal" if total_net >= 0 else "inverse")
 
+    # ── Ev Efficiency Analysis ──
+    gross_profit = total_lock + total_surplus
+    efficiency = (gross_profit / total_burn) if total_burn > 0 else 0.0
+    
+    st.markdown("#### ⏱️ Ev Efficiency (Winning against Time)")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Gross Profit (No Ev)", f"${gross_profit:,.2f}", "Harvest + Shannon")
+    c2.metric("Total Burn (Cost)", f"${total_burn:,.2f}", "Cumulative Theta Decay")
+    c3.metric("Ev Efficiency Ratio", f"{efficiency:.2f}x", 
+              delta="Sustainable" if efficiency >= 1.0 else "Bleeding",
+              delta_color="normal" if efficiency >= 1.0 else "inverse")
+    c4.caption(f"""
+    **Ratio > 1.0** = กำไรจากระบบชนะค่าเช่า (Time Decay)
+    **Ratio < 1.0** = ยังต้องการ Direction ช่วย
+    """)
+
     st.divider()
 
     st.subheader("📋 Ticker Status Cards")
@@ -150,13 +166,17 @@ def _render_engine_tab(data):
     tickers_list = get_tickers(data)
     pool_cf = data.get("global_pool_cf", 0.0)
 
+    pool_cf = data.get("global_pool_cf", 0.0)
+    ev_reserve = data.get("global_ev_reserve", 0.0)
+
     # ── Top bar: Pool CF balance — always visible ──
     with st.container(border=True):
-        top1, top2, top3 = st.columns(3)
+        top1, top2, top3, top4 = st.columns(4)
         top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
-        top2.metric("Tickers", str(len(tickers_list)))
+        top2.metric("🛡️ Ev Reserve", f"${ev_reserve:,.2f}")
+        top3.metric("Tickers", str(len(tickers_list)))
         total_rounds = sum(len(t.get("rounds", [])) for t in tickers_list)
-        top3.metric("Total Rounds", str(total_rounds))
+        top4.metric("Total Rounds", str(total_rounds))
 
     if not tickers_list:
         st.info("ยังไม่มี ticker — เพิ่มที่แท็บ ➕ Manage Data ก่อน")
