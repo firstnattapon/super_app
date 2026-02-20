@@ -325,28 +325,28 @@ def _render_payoff_profile_tab(data):
         st.markdown("""
         **1. ฟังก์ชัน Logarithmic หลัก (y1, y2)**
         สมการหลักของการสร้าง Cashflow (Rebalance) แบบสมการเชิงลอการิทึม 
-        - $y = C \cdot \ln(P / x_0)$   *(C = เงินทุน fix_c, $x_0$ = ราคาจุดอ้างอิงเริ่มต้น)*
+        - $y = C \\cdot \\ln(P / x_0)$   *(C = เงินทุน fix_c, $x_0$ = ราคาจุดอ้างอิงเริ่มต้น)*
         
         **2. การประยุกต์ Delta ทิศทางเดียว (δ1, δ2)**
         การปรับความชัน (Slope) ของกราฟ ให้ลาดชันหรือหนืดลงตามเป้าหมาย (เช่น ใช้ดึง Cashflow หรือป้องกันความเสี่ยง)
-        - $y_{delta} = (C \cdot \ln(P / x_0) \times \delta) + bias$
+        - $y_{delta} = (C \\cdot \\ln(P / x_0) \\times \\delta) + bias$
         
         **3. Piecewise Delta แบบ 2 ทิศทาง (y4, y5)**
-        การใช้ความชัน 2 ระดับในเส้นเดียวกัน: แบ่งเป็น $\delta_1$ อัตราเติบโตช่วงราคาขาลง และ $\delta_2$ อัตราเติบโตช่วงราคาขาขึ้น:
-        - ถ้าราคา $P < x_0 \rightarrow \text{ใช้ } \delta_1$ (เช่น $\delta=0.2$ ทน Drawdown ให้พอร์ตลดทอนลงช้าๆ)
-        - ถ้าราคา $P \ge x_0 \rightarrow \text{ใช้ } \delta_2$ (เช่น $\\delta=1.0$ ขาขึ้นเก็บกำไรได้เต็มเม็ดเต็มหน่วย)
+        การใช้ความชัน 2 ระดับในเส้นเดียวกัน: แบ่งเป็น $\\delta_1$ อัตราเติบโตช่วงราคาขาลง และ $\\delta_2$ อัตราเติบโตช่วงราคาขาขึ้น:
+        - ถ้าราคา $P < x_0 \\rightarrow \\text{ใช้ } \\delta_1$ (เช่น $\\delta=0.2$ ทน Drawdown ให้พอร์ตลดทอนลงช้าๆ)
+        - ถ้าราคา $P \\ge x_0 \\rightarrow \\text{ใช้ } \\delta_2$ (เช่น $\\delta=1.0$ ขาขึ้นเก็บกำไรได้เต็มเม็ดเต็มหน่วย)
         
         **4. Benchmark เส้นอ้างอิง (y6, y7)**
         กราฟอ้างอิงเปรียบเทียบจากตัวแปร $P$ พื้นฐาน เพื่อเทียบกับพอร์ตปัจจุบันของเรา
         
         **5. Options Intrinsic Value (y8, y9)**
         มูลค่าการใช้สิทธิที่แท้จริง (Intrinsic Value) ของ Call และ Put Options (คำนวณหักลบด้วย Premium Cost)
-        - Call (ได้กำไรขาขึ้น): $(\max(0, P - \text{Strike}) \times Qty) - Premium$
-        - Put (ได้กำไรขาลง): $(\max(0, \text{Strike} - P) \times Qty) - Premium$
+        - Call (ได้กำไรขาขึ้น): $(\\max(0, P - \\text{Strike}) \\times Qty) - Premium$
+        - Put (ได้กำไรขาลง): $(\\max(0, \\text{Strike} - P) \\times Qty) - Premium$
         
         **6. Stock / Synthetic ขาตรง (y10, y11)**
         จำลองกำไรขาดทุนจากการถือหุ้นตรงๆ (Linear) แบบ Long หรือ Short โดยกำไรขาดทุนเป็นเส้นตรง
-        - P/L Long: $(P - Entry) \times Qty$
+        - P/L Long: $(P - Entry) \\times Qty$
         """)
 
     with st.expander("🛠️ แผงควบคุมตัวแปร (Simulator Controls)", expanded=True):
@@ -380,6 +380,9 @@ def _render_payoff_profile_tab(data):
             premium_call = st.number_input("Premium ที่จ่าย (Call)", min_value=0.0, value=0.0, step=0.1)
             put_contracts = st.number_input("จำนวน Put Option (y9)", min_value=0, value=100)
             premium_put = st.number_input("Premium ที่จ่าย (Put)", min_value=0.0, value=0.0, step=0.1)
+            st.markdown("---")
+            st.markdown("##### 🌪️ Volatility Harvest")
+            sigma = st.slider("Volatility (σ)", 0.0, 2.0, 0.5, 0.05, help="ความผันผวนสำหรับคำนวณ Harvest Profit")
 
         st.markdown("---")
         st.caption("👁️ ควบคุมการแสดงผลของเส้นกราฟที่คำนวณแล้ว (Toggle Active Lines)")
@@ -398,6 +401,7 @@ def _render_payoff_profile_tab(data):
         
         showY10 = t_col4.checkbox("y10: P/L Long (หุ้น)", value=False, help="เส้นกำไรสมมติจากการถือหุ้นเต็มเม็ด")
         showY11 = t_col4.checkbox("y11: P/L Short (หุ้น)", value=False, help="เส้นกำไรสมมติจากการ Short สินทรัพย์")
+        showY12 = t_col4.checkbox("y12: Dynamic (+Vol)", value=True, help="Shannon 1 + Harvest Profit (Vol Premium)")
         includePremium = t_col4.checkbox("คำนวณหักต้นทุน Premium ในตระกูล Option", value=True)
 
     # ---------------- Mathematics Engine ----------------
@@ -436,8 +440,11 @@ def _render_payoff_profile_tab(data):
     y10_long_pl = (prices - long_entry) * long_shares
     y11_short_pl = (short_entry - prices) * short_shares
 
+    harvest_profit = constant1 * 0.5 * (sigma ** 2) * 1.0
+    y12_dynamic = y1_d2 + harvest_profit
+
     components_d2 = []
-    if showY1: components_d2.append(y1_d2)
+    if showY1 and not showY12: components_d2.append(y1_d2)  # Avoid double counting y1 if y12 is active
     if showY2: components_d2.append(y2_d2)
     if showY4: components_d2.append(y4_piece)
     if showY5: components_d2.append(y5_piece)
@@ -445,6 +452,7 @@ def _render_payoff_profile_tab(data):
     if showY9: components_d2.append(y9_put_intrinsic)
     if showY10: components_d2.append(y10_long_pl)
     if showY11: components_d2.append(y11_short_pl)
+    if showY12: components_d2.append(y12_dynamic)
 
     y3_delta2 = np.sum(components_d2, axis=0) if components_d2 else np.zeros_like(prices)
     y_overlay_d2 = y3_delta2 - y6_ref_d2
@@ -458,6 +466,7 @@ def _render_payoff_profile_tab(data):
         if showY2: fig1.add_trace(go.Scatter(x=prices, y=y2_d2, name=f"y2 (δ={delta2:.2f})", line=dict(color='#fde047', width=3)))
         if showY4: fig1.add_trace(go.Scatter(x=prices, y=y4_piece, name="y4 (piecewise δ y2)", line=dict(color='#a3e635', width=3)))
         if showY5: fig1.add_trace(go.Scatter(x=prices, y=y5_piece, name="y5 (piecewise δ y1)", line=dict(color='#10b981', width=3)))
+        if showY12: fig1.add_trace(go.Scatter(x=prices, y=y12_dynamic, name=f"y12 (Dynamic +Vol)", line=dict(color='#2196f3', width=3, dash='dash')))
         if showY3: fig1.add_trace(go.Scatter(x=prices, y=y3_delta2, name="Net (δ2 base)", line=dict(color='#f472b6', width=3.5)))
         if showY6: fig1.add_trace(go.Scatter(x=prices, y=y6_ref_d2, name="y6 (Benchmark, δ2)", line=dict(color='#94a3b8', width=2.5, dash='dash')))
         if showY7: fig1.add_trace(go.Scatter(x=prices, y=y7_ref_d2, name="y7 (Ref y2, δ2)", line=dict(color='#c084fc', width=2.5, dash='dash')))
