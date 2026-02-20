@@ -599,7 +599,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
     y_overlay_d2 = y3_delta2 - y6_ref_d2
 
     # Plotly Visualization
-    tabs_chart = st.tabs(["เปรียบเทียบทั้งหมด", "Net เท่านั้น", "Delta_Log_Overlay"])
+    tabs_chart = st.tabs(["เปรียบเทียบทั้งหมด", "Net เท่านั้น", "Delta_Log_Overlay", "Capital Flow (Sankey) 🔗"])
 
     with tabs_chart[0]:
         fig1 = go.Figure()
@@ -637,6 +637,86 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         fig3.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8)
         fig3.update_layout(title="Delta Log Overlay", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=500)
         st.plotly_chart(fig3, use_container_width=True)
+
+    with tabs_chart[3]:
+        st.subheader("🔗 Capital Flow Analysis (Sankey)")
+        st.caption("จำลองการไหลของเงินทุน ณ ระดับราคาที่เลือก (Visualizing Capital Distribution)")
+        
+        # Internal price selector for Sankey
+        inspect_p = st.slider("เลื่อนเพื่อดู Flow ณ ราคา P", 
+                             min_value=float(x_min), 
+                             max_value=float(x_max), 
+                             value=float(def_p), 
+                             step=0.5,
+                             format="$%.1f")
+        
+        # Calculate single-point values for Sankey
+        idx = (np.abs(prices - inspect_p)).argmin()
+        s_shannon = y1_d2[idx]
+        s_harvest = y12_dynamic[idx]
+        s_options = y8_call_intrinsic[idx] + y9_put_intrinsic[idx]
+        s_net = y3_delta2[idx]
+        
+        _render_sankey_flow(s_shannon, s_harvest, s_options, s_net, inspect_p)
+
+def _render_sankey_flow(shannon: float, harvest: float, options: float, net: float, price: float):
+    # Balanced Sankey Logic: Sum(In) = Sum(Out)
+    # Nodes: 0:Shannon, 1:Harvest, 2:Options, 3:Gross Flow (Engine), 4:Net Surplus, 5:Net Deficit
+    nodes = ["Shannon P/L", "Harvest Profit", "Options P/L", "Total Flow (Engine)", "Net Surplus", "Net Deficit"]
+    
+    sources = []
+    targets = []
+    values = []
+    colors = []
+    
+    # 1. Incoming to Engine (node 3)
+    if shannon > 0:
+        sources.append(0); targets.append(3); values.append(shannon); colors.append("rgba(34, 211, 238, 0.4)")
+    if harvest > 0:
+        sources.append(1); targets.append(3); values.append(harvest); colors.append("rgba(33, 150, 243, 0.4)")
+    if options > 0:
+        sources.append(2); targets.append(3); values.append(options); colors.append("rgba(34, 197, 94, 0.4)")
+    if net < 0:
+        sources.append(5); targets.append(3); values.append(abs(net)); colors.append("rgba(239, 68, 68, 0.2)")
+
+    # 2. Outgoing from Engine (node 3)
+    if shannon < 0:
+        sources.append(3); targets.append(0); values.append(abs(shannon)); colors.append("rgba(148, 163, 184, 0.4)")
+    if harvest < 0: # Should not happen in this model
+        sources.append(3); targets.append(1); values.append(abs(harvest)); colors.append("rgba(148, 163, 184, 0.4)")
+    if options < 0:
+        sources.append(3); targets.append(2); values.append(abs(options)); colors.append("rgba(239, 68, 68, 0.4)")
+    if net > 0:
+        sources.append(3); targets.append(4); values.append(net); colors.append("rgba(244, 114, 182, 0.4)")
+
+    # Avoid zero-value Sankey errors
+    if not values:
+        st.info("No flow detected at this price point.")
+        return
+
+    fig = go.Figure(data=[go.Sankey(
+        node = dict(
+          pad = 15,
+          thickness = 20,
+          line = dict(color = "black", width = 0.5),
+          label = nodes,
+          color = ["#22d3ee", "#2196f3", "#22c55e", "#94a3b8", "#f472b6", "#ef4444"]
+        ),
+        link = dict(
+          source = sources,
+          target = targets,
+          value = values,
+          color = colors
+        ))])
+
+    fig.update_layout(title_text=f"Capital Flow at Price ${price:,.2f}", font_size=12, height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Shannon", f"${shannon:,.2f}", delta_color="normal" if shannon >= 0 else "inverse")
+    c2.metric("Harvest", f"${harvest:,.2f}")
+    c3.metric("Options Net", f"${options:,.2f}")
+    c4.metric("Net Surplus", f"${net:,.2f}", delta_color="normal" if net >= 0 else "inverse")
 
 
 # ----------------------------------------------------------
