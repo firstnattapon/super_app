@@ -401,7 +401,7 @@ def _render_payoff_profile_tab(data):
         
         showY10 = t_col4.checkbox("y10: P/L Long (หุ้น)", value=False, help="เส้นกำไรสมมติจากการถือหุ้นเต็มเม็ด")
         showY11 = t_col4.checkbox("y11: P/L Short (หุ้น)", value=False, help="เส้นกำไรสมมติจากการ Short สินทรัพย์")
-        showY12 = t_col4.checkbox("y12: Dynamic (+Vol)", value=True, help="Shannon 1 + Harvest Profit (Vol Premium)")
+        showY12 = t_col4.checkbox("y12: Harvest Profit", value=True, help="Harvest Profit (Vol Premium)")
         includePremium = t_col4.checkbox("คำนวณหักต้นทุน Premium ในตระกูล Option", value=True)
 
     # ---------------- Mathematics Engine ----------------
@@ -441,10 +441,10 @@ def _render_payoff_profile_tab(data):
     y11_short_pl = (short_entry - prices) * short_shares
 
     harvest_profit = constant1 * 0.5 * (sigma ** 2) * 1.0
-    y12_dynamic = y1_d2 + harvest_profit
+    y12_dynamic = np.full_like(prices, harvest_profit)
 
     components_d2 = []
-    if showY1 and not showY12: components_d2.append(y1_d2)  # Avoid double counting y1 if y12 is active
+    if showY1: components_d2.append(y1_d2)
     if showY2: components_d2.append(y2_d2)
     if showY4: components_d2.append(y4_piece)
     if showY5: components_d2.append(y5_piece)
@@ -466,7 +466,7 @@ def _render_payoff_profile_tab(data):
         if showY2: fig1.add_trace(go.Scatter(x=prices, y=y2_d2, name=f"y2 (δ={delta2:.2f})", line=dict(color='#fde047', width=3)))
         if showY4: fig1.add_trace(go.Scatter(x=prices, y=y4_piece, name="y4 (piecewise δ y2)", line=dict(color='#a3e635', width=3)))
         if showY5: fig1.add_trace(go.Scatter(x=prices, y=y5_piece, name="y5 (piecewise δ y1)", line=dict(color='#10b981', width=3)))
-        if showY12: fig1.add_trace(go.Scatter(x=prices, y=y12_dynamic, name=f"y12 (Dynamic +Vol)", line=dict(color='#2196f3', width=3, dash='dash')))
+        if showY12: fig1.add_trace(go.Scatter(x=prices, y=y12_dynamic, name="y12 (Harvest Profit)", line=dict(color='#2196f3', width=3, dash='dash')))
         if showY3: fig1.add_trace(go.Scatter(x=prices, y=y3_delta2, name="Net (δ2 base)", line=dict(color='#f472b6', width=3.5)))
         if showY6: fig1.add_trace(go.Scatter(x=prices, y=y6_ref_d2, name="y6 (Benchmark, δ2)", line=dict(color='#94a3b8', width=2.5, dash='dash')))
         if showY7: fig1.add_trace(go.Scatter(x=prices, y=y7_ref_d2, name="y7 (Ref y2, δ2)", line=dict(color='#c084fc', width=2.5, dash='dash')))
