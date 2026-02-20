@@ -310,47 +310,84 @@ def _render_payoff_profile_tab(data):
     def_c = float(cur_state.get("fix_c", 10000.0))
     def_p = float(cur_state.get("price", 100.0))
 
-    with st.expander("🛠️ Simulator Controls", expanded=True):
+    with st.expander("📚 อธิบายหลักการและสมการคณิตศาสตร์ (Principles & Formulas) - คลิกเพื่ออ่าน", expanded=False):
+        st.markdown("""
+        **1. ฟังก์ชัน Logarithmic หลัก (y1, y2)**
+        สมการหลักของการสร้าง Cashflow (Rebalance) แบบสมการเชิงลอการิทึม 
+        - $y = C \\cdot \\ln(P / x_0)$   *(C = เงินทุน fix_c, $x_0$ = ราคาจุดอ้างอิงเริ่มต้น)*
+        
+        **2. การประยุกต์ Delta ทิศทางเดียว (δ1, δ2)**
+        การปรับความชัน (Slope) ของกราฟ ให้ลาดชันหรือหนืดลงตามเป้าหมาย (เช่น ใช้ดึง Cashflow หรือป้องกันความเสี่ยง)
+        - $y_{delta} = (C \\cdot \\ln(P / x_0) \\times \\delta) + bias$
+        
+        **3. Piecewise Delta แบบ 2 ทิศทาง (y4, y5)**
+        การใช้ความชัน 2 ระดับในเส้นเดียวกัน: แบ่งเป็น $\\delta_1$ อัตราเติบโตช่วงราคาขาลง และ $\\delta_2$ อัตราเติบโตช่วงราคาขาขึ้น:
+        - ถ้าราคา $P < x_0 \\rightarrow \\text{ใช้ } \\delta_1$ (เช่น $\\delta=0.2$ ทน Drawdown ให้พอร์ตลดทอนลงช้าๆ)
+        - ถ้าราคา $P \\ge x_0 \\rightarrow \\text{ใช้ } \\delta_2$ (เช่น $\\delta=1.0$ ขาขึ้นเก็บกำไรได้เต็มเม็ดเต็มหน่วย)
+        
+        **4. Benchmark เส้นอ้างอิง (y6, y7)**
+        กราฟอ้างอิงเปรียบเทียบจากตัวแปร $P$ พื้นฐาน เพื่อเทียบกับพอร์ตปัจจุบันของเรา
+        
+        **5. Options Intrinsic Value (y8, y9)**
+        มูลค่าการใช้สิทธิที่แท้จริง (Intrinsic Value) ของ Call และ Put Options (คำนวณหักลบด้วย Premium Cost)
+        - Call (ได้กำไรขาขึ้น): $(\\max(0, P - \\text{Strike}) \\times Qty) - Premium$
+        - Put (ได้กำไรขาลง): $(\\max(0, \\text{Strike} - P) \\times Qty) - Premium$
+        
+        **6. Stock / Synthetic ขาตรง (y10, y11)**
+        จำลองกำไรขาดทุนจากการถือหุ้นตรงๆ (Linear) แบบ Long หรือ Short โดยกำไรขาดทุนเป็นเส้นตรง
+        - P/L Long: $(P - Entry) \\times Qty$
+        """)
+
+    with st.expander("🛠️ แผงควบคุมตัวแปร (Simulator Controls)", expanded=True):
         col_c1, col_c2, col_c3 = st.columns(3)
         with col_c1:
-            x0_1 = st.number_input("x0_1 (threshold y1/y5)", min_value=0.1, max_value=1000.0, value=def_p, step=1.0)
-            constant1 = st.number_input("Constant y1/y5 (fix_c)", min_value=100.0, value=def_c, step=100.0)
-            b1 = st.number_input("b1 (bias y1/y5)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
-            delta1 = st.slider("Delta 1 (δ1)", 0.0, 2.0, 0.2, 0.05)
-            long_shares = st.number_input("Shares Long (y10)", min_value=0, value=100)
-            long_entry = st.number_input("Long Entry (y10)", min_value=0.1, value=def_p, step=1.0)
+            st.markdown("##### 🟢 กลุ่มหลัก (Shannon 1 / Long หุ้น)")
+            x0_1 = st.number_input("จุดอ้างอิง x0_1 (แกนศูนย์ y1/y5)", min_value=0.1, max_value=1000.0, value=def_p, step=1.0, help="ราคา Threshold ตัดขาดทุนกำไรของระบบรอบแกน 1")
+            constant1 = st.number_input("เงินทุน Constant C (y1/y5)", min_value=100.0, value=def_c, step=100.0, help="ขนาดเงินทุนคงที่ C ของสมการตัวที่ 1")
+            b1 = st.number_input("ค่า Bias เลื่อนแกน (b1)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            delta1 = st.slider("ความชันขาลง (δ1 สำหรับ x < x0)", 0.0, 2.0, 0.2, 0.05, help="อัตราเร่งตอนที่ราคาสินทรัพยร่วงลง")
+            st.markdown("---")
+            long_shares = st.number_input("จำนวน Quantity (y10 Long)", min_value=0, value=100, help="ปริมาณสัญญาหรือหุ้น Long สด")
+            long_entry = st.number_input("ราคา Long Entry", min_value=0.1, value=def_p, step=1.0)
             
         with col_c2:
-            x0_2 = st.number_input("x0_2 (threshold y2/y4)", min_value=0.1, max_value=1000.0, value=max(def_p*1.5, 0.1), step=1.0)
-            constant2 = st.number_input("Constant y2/y4", min_value=100.0, value=def_c, step=100.0)
-            b2 = st.number_input("b2 (bias y2/y4)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
-            delta2 = st.slider("Delta 2 (δ2)", 0.0, 2.0, 1.0, 0.05)
-            short_shares = st.number_input("Shares Short (y11)", min_value=0, value=100)
-            short_entry = st.number_input("Short Entry (y11)", min_value=0.1, value=max(def_p*1.5, 0.1), step=1.0)
+            st.markdown("##### 🟡 กลุ่มรอง (Shannon 2 / Short หุ้น)")
+            x0_2 = st.number_input("จุดอ้างอิง x0_2 (แกนศูนย์ y2/y4)", min_value=0.1, max_value=1000.0, value=max(def_p*1.5, 0.1), step=1.0, help="ราคา Threshold โซนที่ 2 (เช่น แนวต้านใหญ่)")
+            constant2 = st.number_input("เงินทุน Constant (y2/y4)", min_value=100.0, value=def_c, step=100.0)
+            b2 = st.number_input("ค่า Bias เลื่อนแกน (b2)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            delta2 = st.slider("ความชันขาขึ้น (δ2 สำหรับ x >= x0)", 0.0, 2.0, 1.0, 0.05, help="อัตราเร่งตอนที่ราคาสินทรัพย์พุ่งทะยานผ่านจุด x0")
+            st.markdown("---")
+            short_shares = st.number_input("จำนวน Quantity (y11 Short)", min_value=0, value=100)
+            short_entry = st.number_input("ราคา Short Entry", min_value=0.1, value=max(def_p*1.5, 0.1), step=1.0)
 
         with col_c3:
-            anchorY6 = st.number_input("Anchor Benchmark", min_value=0.1, value=def_p, step=1.0)
-            refConst = st.number_input("Ref Constant", min_value=100.0, value=def_c, step=100.0)
-            call_contracts = st.number_input("Call Contracts (y8)", min_value=0, value=100)
-            premium_call = st.number_input("Premium Call", min_value=0.0, value=0.0, step=0.1)
-            put_contracts = st.number_input("Put Contracts (y9)", min_value=0, value=100)
-            premium_put = st.number_input("Premium Put", min_value=0.0, value=0.0, step=0.1)
+            st.markdown("##### ⚔️ กลุ่ม Options & Benchmark")
+            anchorY6 = st.number_input("ราคาอ้างอิง Benchmark", min_value=0.1, value=def_p, step=1.0, help="ราคาเริ่มต้นของ Benchmark เส้นทึบดั้งเดิม")
+            refConst = st.number_input("เงินทุนอ้างอิง (Ref Const)", min_value=100.0, value=def_c, step=100.0)
+            st.markdown("---")
+            call_contracts = st.number_input("จำนวน Call Option (y8)", min_value=0, value=100)
+            premium_call = st.number_input("Premium ที่จ่าย (Call)", min_value=0.0, value=0.0, step=0.1)
+            put_contracts = st.number_input("จำนวน Put Option (y9)", min_value=0, value=100)
+            premium_put = st.number_input("Premium ที่จ่าย (Put)", min_value=0.0, value=0.0, step=0.1)
 
         st.markdown("---")
-        st.caption("Toggle Active Lines")
+        st.caption("👁️ ควบคุมการแสดงผลของเส้นกราฟที่คำนวณแล้ว (Toggle Active Lines)")
         t_col1, t_col2, t_col3, t_col4 = st.columns(4)
-        showY1 = t_col1.checkbox("y1: Shannon 1 (+piecewise)", value=True)
-        showY2 = t_col1.checkbox("y2: Shannon 2 (original)", value=False)
-        showY3 = t_col1.checkbox("y3: Net P/L", value=True)
-        showY4 = t_col2.checkbox("y4: Piecewise y2", value=False)
-        showY5 = t_col2.checkbox("y5: Piecewise y1", value=False)
-        showY6 = t_col2.checkbox("y6: Ref y1", value=True)
-        showY7 = t_col3.checkbox("y7: Ref y2", value=False)
-        showY8 = t_col3.checkbox("y8: Call Intrinsic", value=False)
-        showY9 = t_col3.checkbox("y9: Put Intrinsic", value=False)
-        showY10 = t_col4.checkbox("y10: P/L Long", value=False)
-        showY11 = t_col4.checkbox("y11: P/L Short", value=False)
-        includePremium = t_col4.checkbox("Include Premium in y8/y9", value=True)
+        showY1 = t_col1.checkbox("y1: Shannon 1 (+piecewise)", value=True, help="เส้น Base ลอการิทึม 1")
+        showY2 = t_col1.checkbox("y2: Shannon 2 (original)", value=False, help="เส้น Base ลอการิทึม 2")
+        showY3 = t_col1.checkbox("y3: Net P/L (ผลรวม)", value=True, help="พอร์ตโฟลิโอ Net P/L (ผลรวมจากเส้นสีอื่นทั้งหมดที่เปิดติ๊กถูกไว้)")
+        
+        showY4 = t_col2.checkbox("y4: Piecewise y2", value=False, help="แยกความชันบนล่างของ y2")
+        showY5 = t_col2.checkbox("y5: Piecewise y1", value=False, help="แยกความชันบนล่างของ y1")
+        showY6 = t_col2.checkbox("y6: Ref y1 (Benchmark)", value=True, help="เส้นอ้างอิงเทียบ y1")
+        
+        showY7 = t_col3.checkbox("y7: Ref y2", value=False, help="เส้นอ้างอิงเทียบ y2")
+        showY8 = t_col3.checkbox("y8: Call Intrinsic", value=False, help="สมมติฐานผลกำไรจากฝั่ง Long Call")
+        showY9 = t_col3.checkbox("y9: Put Intrinsic", value=False, help="สมมติฐานผลกำไรจากฝั่ง Long Put")
+        
+        showY10 = t_col4.checkbox("y10: P/L Long (หุ้น)", value=False, help="เส้นกำไรสมมติจากการถือหุ้นเต็มเม็ด")
+        showY11 = t_col4.checkbox("y11: P/L Short (หุ้น)", value=False, help="เส้นกำไรสมมติจากการ Short สินทรัพย์")
+        includePremium = t_col4.checkbox("คำนวณหักต้นทุน Premium ในตระกูล Option", value=True)
 
     # ---------------- Mathematics Engine ----------------
     x_min, x_max = max(0.1, def_p * 0.1), def_p * 2.5
