@@ -804,12 +804,8 @@ def _render_payoff_profile_tab(data):
         P0 = st.number_input("Current Price ($)", 0.1, 10000.0, float(def_p), 1.0, key="chain_p0_payoff")
         sigma = st.slider("Volatility (σ)", 0.1, 2.0, 0.5, 0.1, key="chain_sig_payoff")
         
-        st.markdown("**Shielded (+Puts) Upside $\\delta$**")
-        delta_2 = st.slider("Upside $\\delta_2$ (Price >= P0)", 0.5, 2.0, 1.0, 0.1, key="chain_d2_payoff")
-        
-        crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
-        P_crash = P0 * (crash_price_pct / 100.0)
-        st.metric("Crash Price Scenario", f"${P_crash:.1f}")
+        st.markdown("**Stock Replacement (Piecewise $\\delta$)**")
+        delta_1 = st.slider("Downside $\\delta_1$ (Price < P0)", 0.0, 1.0, 0.2, 0.1, key="chain_d1_payoff")
 
     with col2:
         hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 3.0, 2.0, 0.1, key="chain_hr_payoff")
@@ -820,10 +816,12 @@ def _render_payoff_profile_tab(data):
 
         qty_puts = (fix_c / P0) * hedge_ratio
         
-        st.markdown("**Stock Replacement (Piecewise $\\delta$)**")
-        delta_1 = st.slider("Downside $\\delta_1$ (Price < P0)", 0.0, 1.0, 0.2, 0.1, key="chain_d1_payoff")
+        st.markdown("**Shielded (+Puts) Upside $\\delta$**")
+        delta_2 = st.slider("Upside $\\delta_2$ (Price >= P0)", 0.5, 2.0, 1.0, 0.1, key="chain_d2_payoff")
         
-        delta_2_unused = st.slider("Upside $\\delta_2$ (Price >= P0)", 0.5, 2.0, 1.0, 0.1, key="chain_d2_unused_payoff", disabled=True)
+        crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
+        P_crash = P0 * (crash_price_pct / 100.0)
+        st.metric("Crash Price Scenario", f"${P_crash:.1f}")
 
     r = 0.04
     T = 1.0
@@ -964,4 +962,61 @@ def _render_manage_data(data):
     # Clear Data
     with st.expander("⚠️ ลบข้อมูลทั้งหมด (Reset)", expanded=False):
         if st.button("DELETE ALL DATA", type="primary"):
-            data["tickers
+            data["tickers"] = []
+            data["global_pool_cf"] = 0.0
+            data["global_ev_reserve"] = 0.0
+            data["treasury_history"] = []
+            save_trading_data(data)
+            st.warning("All data cleared!")
+            st.rerun()
+
+def main():
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("เลือกบทเรียน:", 
+        [
+            "บทนำ: Flywheel 0 (Dragon Portfolio)",
+            "บทที่ 1: The Baseline",
+            "บทที่ 2: Volatility Harvest",
+            "บทที่ 3: Convexity Engine",
+            "บทที่ 4: The Black Swan Shield",
+            "บทที่ 5: Dynamic Scaling",
+            "บทที่ 6: Synthetic Dividend",
+            "บทที่ 7: Collateral Magic",
+            "บทที่ 8: Chain System (ลูกโซ่)",
+            "📝 แบบทดสอบ (Quiz)",
+            "🛠️ Workshop: จัดพอร์ตจริง",
+            "📚 อภิธานศัพท์ (Glossary)"
+        ]
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.info("Application to demonstrate the concepts of Shannon's Demon strategy.")
+
+    # Page Routing
+    if page == "บทนำ: Flywheel 0 (Dragon Portfolio)":
+        chapter_0_introduction()
+    elif page == "บทที่ 1: The Baseline":
+        chapter_1_baseline()
+    elif page == "บทที่ 2: Volatility Harvest":
+        chapter_2_volatility_harvest()
+    elif page == "บทที่ 3: Convexity Engine":
+        chapter_3_convexity_engine()
+    elif page == "บทที่ 4: The Black Swan Shield":
+        chapter_4_black_swan_shield()
+    elif page == "บทที่ 5: Dynamic Scaling":
+        chapter_5_dynamic_scaling()
+    elif page == "บทที่ 6: Synthetic Dividend":
+        chapter_6_synthetic_dividend()
+    elif page == "บทที่ 7: Collateral Magic":
+        chapter_7_collateral_magic()
+    elif page == "บทที่ 8: Chain System (ลูกโซ่)":
+        chapter_chain_system()
+    elif page == "📝 แบบทดสอบ (Quiz)":
+        master_study_guide_quiz()
+    elif page == "🛠️ Workshop: จัดพอร์ตจริง":
+        paper_trading_workshop()
+    elif page == "📚 อภิธานศัพท์ (Glossary)":
+        glossary_section()
+
+if __name__ == "__main__":
+    main()
