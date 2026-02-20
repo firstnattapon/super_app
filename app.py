@@ -14,11 +14,6 @@ from flywheels import (
     parse_final, parse_beta_numbers, parse_beta_net,
     parse_surplus_iv, get_rollover_history, build_portfolio_df,
     black_scholes, sanitize_number_str,
-    chapter_0_introduction, chapter_1_baseline, chapter_2_volatility_harvest,
-    chapter_3_convexity_engine, chapter_4_black_swan_shield,
-    chapter_5_dynamic_scaling, chapter_6_synthetic_dividend,
-    chapter_7_collateral_magic, master_study_guide_quiz,
-    paper_trading_workshop, glossary_section
 )
 
 
@@ -650,7 +645,7 @@ def _render_consolidated_history(t_data):
 
         action_short = rd.get("action", "Round")
         if rd.get("scale_up", 0) > 0:
-             action_short = f"Scale +${rd['scale_up']:,.0f}"
+            action_short = f"Scale +${rd['scale_up']:,.0f}"
         if "Injection" in rd.get("action", ""):
             action_short = "Inject/Deploy"
             
@@ -969,54 +964,5 @@ def _render_manage_data(data):
             st.warning("All data cleared!")
             st.rerun()
 
-def main():
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio("เลือกบทเรียน:", 
-        [
-            "บทนำ: Flywheel 0 (Dragon Portfolio)",
-            "บทที่ 1: The Baseline",
-            "บทที่ 2: Volatility Harvest",
-            "บทที่ 3: Convexity Engine",
-            "บทที่ 4: The Black Swan Shield",
-            "บทที่ 5: Dynamic Scaling",
-            "บทที่ 6: Synthetic Dividend",
-            "บทที่ 7: Collateral Magic",
-            "บทที่ 8: Chain System (ลูกโซ่)",
-            "📝 แบบทดสอบ (Quiz)",
-            "🛠️ Workshop: จัดพอร์ตจริง",
-            "📚 อภิธานศัพท์ (Glossary)"
-        ]
-    )
-
-    st.sidebar.markdown("---")
-    st.sidebar.info("Application to demonstrate the concepts of Shannon's Demon strategy.")
-
-    # Page Routing
-    if page == "บทนำ: Flywheel 0 (Dragon Portfolio)":
-        chapter_0_introduction()
-    elif page == "บทที่ 1: The Baseline":
-        chapter_1_baseline()
-    elif page == "บทที่ 2: Volatility Harvest":
-        chapter_2_volatility_harvest()
-    elif page == "บทที่ 3: Convexity Engine":
-        chapter_3_convexity_engine()
-    elif page == "บทที่ 4: The Black Swan Shield":
-        chapter_4_black_swan_shield()
-    elif page == "บทที่ 5: Dynamic Scaling":
-        chapter_5_dynamic_scaling()
-    elif page == "บทที่ 6: Synthetic Dividend":
-        chapter_6_synthetic_dividend()
-    elif page == "บทที่ 7: Collateral Magic":
-        chapter_7_collateral_magic()
-    elif page == "บทที่ 8: Chain System (ลูกโซ่)":
-        chapter_chain_system()
-    elif page == "📝 แบบทดสอบ (Quiz)":
-        master_study_guide_quiz()
-    elif page == "🛠️ Workshop: จัดพอร์ตจริง":
-        paper_trading_workshop()
-    elif page == "📚 อภิธานศัพท์ (Glossary)":
-        glossary_section()
-
 if __name__ == "__main__":
-    main()
-
+    chapter_chain_system()
