@@ -800,6 +800,11 @@ def _render_payoff_profile_tab(data):
 
     with col2:
         hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 3.0, 2.0, 0.1, key="chain_hr_payoff")
+        
+        # User can select the put strike price
+        put_strike = st.number_input("Put Strike Price ($)", min_value=0.1, value=float(P0 * 0.9), step=1.0, key="chain_put_strike_payoff")
+        put_strike_pct = put_strike / P0 if P0 > 0 else 0.9
+
         qty_puts = (fix_c / P0) * hedge_ratio
         
         crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
@@ -808,27 +813,37 @@ def _render_payoff_profile_tab(data):
 
     r = 0.04
     T = 1.0
-    put_strike_pct = 0.9
-    put_strike = P0 * put_strike_pct
     put_premium = black_scholes(P0, put_strike, T, r, sigma, 'put')
     cost_hedge = qty_puts * put_premium
     harvest_profit = fix_c * 0.5 * (sigma ** 2) * T
     surplus = harvest_profit - cost_hedge
 
     prices = np.linspace(P0 * 0.2, P0 * 1.5, 200)
-    base_80_20 = fix_c * np.log(prices / P0)
+    
+    # Line 1: Buy & Hold (Unhedged Baseline) - Assume 1x leverage on fix_c
+    buy_and_hold = fix_c * (prices / P0 - 1)
+    
+    # Line 2: Shannon Baseline (Rebalanced) -> fix_c * ln(Pt/P0)
+    shannon_baseline = fix_c * np.log(prices / P0)
+    
+    # Line 3: Dynamic (+Vol) -> Shannon Baseline + Harvest
     vol_premium = fix_c * 0.5 * (sigma ** 2) * T
-    dynamic_shield = base_80_20 + vol_premium
+    dynamic_shield = shannon_baseline + vol_premium
+    
+    # Line 4: Shielded (+Puts) -> Dynamic + Put Payoff - Cost
     put_val = qty_puts * np.maximum(0, put_strike - prices)
-    shielded_80_20 = dynamic_shield + put_val - cost_hedge
+    shielded = dynamic_shield + put_val - cost_hedge
 
     fig_payoff = go.Figure()
-    fig_payoff.add_trace(go.Scatter(x=prices, y=base_80_20, name="Base 80/20 (Unhedged)",
+    fig_payoff.add_trace(go.Scatter(x=prices, y=buy_and_hold, name="Buy & Hold (1x)",
+        line=dict(width=2, color='gray', dash='dot')))
+    fig_payoff.add_trace(go.Scatter(x=prices, y=shannon_baseline, name="Shannon Baseline",
         line=dict(width=2, color='#ff9800')))
     fig_payoff.add_trace(go.Scatter(x=prices, y=dynamic_shield, name="Dynamic (+Vol)",
         line=dict(width=2, color='#2196f3', dash='dash')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=shielded_80_20, name="Shielded (+Puts)",
+    fig_payoff.add_trace(go.Scatter(x=prices, y=shielded, name="Shielded (+Puts)",
         line=dict(width=3, color='#00c853')))
+    
     fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
                          annotation_text=f"Crash {P_crash:.1f}")
     fig_payoff.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
