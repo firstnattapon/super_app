@@ -837,15 +837,14 @@ def _render_payoff_profile_tab(data):
     vol_premium = fix_c * 0.5 * (sigma ** 2) * T
     dynamic_shield = shannon_baseline + vol_premium
     
-    # Line 4: Shielded (+Puts) -> Dynamic + Put Payoff - Cost
+    # Line 4: Shielded (+Puts) -> Shannon + Vol (Harvest) + Put Payoff - Cost
     put_val = qty_puts * np.maximum(0, put_strike - prices)
-    shielded = dynamic_shield + put_val - cost_hedge
+    shielded = shannon_baseline + vol_premium + put_val - cost_hedge
     
-    # Line 5: Stock Replacement (Piecewise Delta)
-    # y5 = 0 + fix_c * ln(Pt/P0) * \delta(Pt)
+    # Line 5: Stock Replacement (LEAPS+Liq) -> Piecewise Delta + Vol (Harvest)
     # \delta(Pt) = \delta_2 if Pt >= P0 else \delta_1
     piecewise_delta = np.where(prices >= P0, delta_2, delta_1)
-    stock_replacement = fix_c * np.log(prices / P0) * piecewise_delta
+    stock_replacement = (fix_c * np.log(prices / P0) * piecewise_delta) + vol_premium
 
     fig_payoff = go.Figure()
     fig_payoff.add_trace(go.Scatter(x=prices, y=buy_and_hold, name="Buy & Hold (1x)",
@@ -964,5 +963,53 @@ def _render_manage_data(data):
             st.warning("All data cleared!")
             st.rerun()
 
+def main():
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("เลือกบทเรียน:", 
+        [
+            "บทนำ: Flywheel 0 (Dragon Portfolio)",
+            "บทที่ 1: The Baseline",
+            "บทที่ 2: Volatility Harvest",
+            "บทที่ 3: Convexity Engine",
+            "บทที่ 4: The Black Swan Shield",
+            "บทที่ 5: Dynamic Scaling",
+            "บทที่ 6: Synthetic Dividend",
+            "บทที่ 7: Collateral Magic",
+            "บทที่ 8: Chain System (ลูกโซ่)",
+            "📝 แบบทดสอบ (Quiz)",
+            "🛠️ Workshop: จัดพอร์ตจริง",
+            "📚 อภิธานศัพท์ (Glossary)"
+        ]
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.info("Application to demonstrate the concepts of Shannon's Demon strategy.")
+
+    # Page Routing
+    if page == "บทนำ: Flywheel 0 (Dragon Portfolio)":
+        chapter_0_introduction()
+    elif page == "บทที่ 1: The Baseline":
+        chapter_1_baseline()
+    elif page == "บทที่ 2: Volatility Harvest":
+        chapter_2_volatility_harvest()
+    elif page == "บทที่ 3: Convexity Engine":
+        chapter_3_convexity_engine()
+    elif page == "บทที่ 4: The Black Swan Shield":
+        chapter_4_black_swan_shield()
+    elif page == "บทที่ 5: Dynamic Scaling":
+        chapter_5_dynamic_scaling()
+    elif page == "บทที่ 6: Synthetic Dividend":
+        chapter_6_synthetic_dividend()
+    elif page == "บทที่ 7: Collateral Magic":
+        chapter_7_collateral_magic()
+    elif page == "บทที่ 8: Chain System (ลูกโซ่)":
+        chapter_chain_system()
+    elif page == "📝 แบบทดสอบ (Quiz)":
+        master_study_guide_quiz()
+    elif page == "🛠️ Workshop: จัดพอร์ตจริง":
+        paper_trading_workshop()
+    elif page == "📚 อภิธานศัพท์ (Glossary)":
+        glossary_section()
+
 if __name__ == "__main__":
-    chapter_chain_system()
+    main()
