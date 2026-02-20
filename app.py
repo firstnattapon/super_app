@@ -377,8 +377,10 @@ def _render_payoff_profile_tab(data):
             refConst = st.number_input("เงินทุนอ้างอิง (Ref Const)", min_value=100.0, value=def_c, step=100.0)
             st.markdown("---")
             call_contracts = st.number_input("จำนวน Call Option (y8)", min_value=0, value=100)
+            strike_call = st.number_input("Strike Price (Call)", min_value=0.1, value=def_p, step=1.0)
             premium_call = st.number_input("Premium ที่จ่าย (Call)", min_value=0.0, value=0.0, step=0.1)
             put_contracts = st.number_input("จำนวน Put Option (y9)", min_value=0, value=100)
+            strike_put = st.number_input("Strike Price (Put)", min_value=0.1, value=def_p, step=1.0)
             premium_put = st.number_input("Premium ที่จ่าย (Put)", min_value=0.0, value=0.0, step=0.1)
             st.markdown("---")
             st.markdown("##### 🌪️ Volatility Harvest")
@@ -434,8 +436,8 @@ def _render_payoff_profile_tab(data):
 
     premCallCost = call_contracts * premium_call if includePremium else 0
     premPutCost = put_contracts * premium_put if includePremium else 0
-    y8_call_intrinsic = (np.maximum(0, prices - x0_1) * call_contracts) - premCallCost
-    y9_put_intrinsic = (np.maximum(0, x0_2 - prices) * put_contracts) - premPutCost
+    y8_call_intrinsic = (np.maximum(0, prices - strike_call) * call_contracts) - premCallCost
+    y9_put_intrinsic = (np.maximum(0, strike_put - prices) * put_contracts) - premPutCost
 
     y10_long_pl = (prices - long_entry) * long_shares
     y11_short_pl = (short_entry - prices) * short_shares
