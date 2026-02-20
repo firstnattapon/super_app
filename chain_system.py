@@ -797,6 +797,9 @@ def _render_payoff_profile_tab(data):
         fix_c = st.number_input("Fixed Capital ($)", 1000.0, 1000000.0, float(def_c), 1000.0, key="chain_c_payoff")
         P0 = st.number_input("Current Price ($)", 0.1, 10000.0, float(def_p), 1.0, key="chain_p0_payoff")
         sigma = st.slider("Volatility (σ)", 0.1, 2.0, 0.5, 0.1, key="chain_sig_payoff")
+        
+        st.markdown("**Stock Replacement (Piecewise $\\delta$)**")
+        delta_1 = st.slider("Downside $\\delta_1$ (Price < P0)", 0.0, 1.0, 0.2, 0.1, key="chain_d1_payoff")
 
     with col2:
         hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 3.0, 2.0, 0.1, key="chain_hr_payoff")
@@ -806,6 +809,9 @@ def _render_payoff_profile_tab(data):
         put_strike_pct = put_strike / P0 if P0 > 0 else 0.9
 
         qty_puts = (fix_c / P0) * hedge_ratio
+        
+        st.markdown("**Stock Replacement (Piecewise $\\delta$)**")
+        delta_2 = st.slider("Upside $\\delta_2$ (Price >= P0)", 0.5, 2.0, 1.0, 0.1, key="chain_d2_payoff")
         
         crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
         P_crash = P0 * (crash_price_pct / 100.0)
@@ -833,6 +839,12 @@ def _render_payoff_profile_tab(data):
     # Line 4: Shielded (+Puts) -> Dynamic + Put Payoff - Cost
     put_val = qty_puts * np.maximum(0, put_strike - prices)
     shielded = dynamic_shield + put_val - cost_hedge
+    
+    # Line 5: Stock Replacement (Piecewise Delta)
+    # y5 = 0 + fix_c * ln(Pt/P0) * \delta(Pt)
+    # \delta(Pt) = \delta_2 if Pt >= P0 else \delta_1
+    piecewise_delta = np.where(prices >= P0, delta_2, delta_1)
+    stock_replacement = fix_c * np.log(prices / P0) * piecewise_delta
 
     fig_payoff = go.Figure()
     fig_payoff.add_trace(go.Scatter(x=prices, y=buy_and_hold, name="Buy & Hold (1x)",
@@ -843,6 +855,8 @@ def _render_payoff_profile_tab(data):
         line=dict(width=2, color='#2196f3', dash='dash')))
     fig_payoff.add_trace(go.Scatter(x=prices, y=shielded, name="Shielded (+Puts)",
         line=dict(width=3, color='#00c853')))
+    fig_payoff.add_trace(go.Scatter(x=prices, y=stock_replacement, name="Stock Replacement (LEAPS+Liq)",
+        line=dict(width=3, color='#9c27b0')))
     
     fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
                          annotation_text=f"Crash {P_crash:.1f}")
