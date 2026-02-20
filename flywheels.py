@@ -1,4 +1,3 @@
-
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -10,31 +9,37 @@ import os
 import re
 import copy
 from datetime import datetime
+from typing import Dict, List, Tuple, Optional, Any, Union
 
 # ============================================================
 # UTILITIES
 # ============================================================
 
-def sanitize_number_str(s):
+def sanitize_number_str(s: Optional[str]) -> str:
     """Normalize number strings: replace Unicode minus, remove commas/spaces."""
     if not s:
-        return s
-    return s.replace('\u2212', '-').replace('\u2013', '-').replace('\u2014', '-').replace(',', '').strip()
+        return ""
+    return str(s).replace('\u2212', '-').replace('\u2013', '-').replace('\u2014', '-').replace(',', '').strip()
 
-def black_scholes(S, K, T, r, sigma, option_type='call'):
+def black_scholes(S: float, K: float, T: float, r: float, sigma: float, option_type: str = 'call') -> float:
     """Black-Scholes option pricing."""
     if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return 0.0
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    if option_type == 'call':
-        return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-    else:
-        return K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+    try:
+        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        if option_type == 'call':
+            return float(S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+        else:
+            return float(K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
+    except Exception:
+        return 0.0
 
-def generate_gbm(S0, mu, sigma, T, dt, n_sims=1):
+def generate_gbm(S0: float, mu: float, sigma: float, T: float, dt: float, n_sims: int = 1) -> Tuple[np.ndarray, np.ndarray]:
     """Generate Geometric Brownian Motion price path."""
     N = int(T / dt)
+    if N <= 0:
+        return np.array([0.0]), np.array([S0])
     t = np.linspace(0, T, N)
     W = np.random.standard_normal(size=N)
     W = np.cumsum(W) * np.sqrt(dt)
@@ -46,55 +51,66 @@ def generate_gbm(S0, mu, sigma, T, dt, n_sims=1):
 # DATA LAYER — trading_data.json
 # ============================================================
 
-_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-_DATA_FILE = os.path.join(_DATA_DIR, "trading_data.json")
-_BACKUP_FILE = os.path.join(_DATA_DIR, "trading_data.backup.json")
+_DATA_DIR: str = os.path.dirname(os.path.abspath(__file__))
+_DATA_FILE: str = os.path.join(_DATA_DIR, "trading_data.json")
+_BACKUP_FILE: str = os.path.join(_DATA_DIR, "trading_data.backup.json")
 
-def load_trading_data():
+def load_trading_data() -> Dict[str, Any]:
     """Load portfolio data, auto-migrating to V2 if needed."""
     try:
         with open(_DATA_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         raw = []
+    
     return _migrate_data_if_needed(raw)
 
-def save_trading_data(data):
-    """Save portfolio data with auto-backup."""
+def save_trading_data(data: Dict[str, Any]) -> None:
+    """Save portfolio data with auto-backup and atomic write pattern safely."""
     if os.path.exists(_DATA_FILE):
         try:
             import shutil
             shutil.copy2(_DATA_FILE, _BACKUP_FILE)
         except Exception:
             pass
-    with open(_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+            
+    tmp_file = f"{_DATA_FILE}.tmp"
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_file, _DATA_FILE)
+    except Exception as e:
+        st.error(f"Error saving data: {e}")
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
 
-def get_tickers(data):
+def get_tickers(data: Union[Dict[str, Any], List[Any]]) -> List[Dict[str, Any]]:
     """Get tickers list from V2 data structure."""
     if isinstance(data, dict):
         return data.get("tickers", [])
-    return data  # fallback for raw list
+    return data if isinstance(data, list) else []
 
-def _migrate_data_if_needed(raw_data):
+def _migrate_data_if_needed(raw_data: Union[Dict, List]) -> Dict[str, Any]:
     """Upgrade from V1 (flat list) to V2 (wrapper with tickers/pool_cf).
     Preserves all legacy fields. Adds current_state + empty rounds to each ticker."""
     if isinstance(raw_data, dict) and raw_data.get("version") == 2:
         return raw_data
+        
     tickers = raw_data if isinstance(raw_data, list) else []
     for item in tickers:
         if "current_state" not in item:
             t, c, b = parse_final(item.get("Final", ""))
             ev, _ = parse_beta_numbers(item.get("beta_Equation", ""))
             item["current_state"] = {
-                "price": t if t else 0.0,
-                "fix_c": c if c else 0.0,
-                "baseline": b if b else 0.0,
+                "price": t if t is not None else 0.0,
+                "fix_c": c if c is not None else 0.0,
+                "baseline": b if b is not None else 0.0,
                 "pool_cf_net": 0.0,
                 "cumulative_ev": abs(ev) if ev else 0.0,
             }
         if "rounds" not in item:
             item["rounds"] = []
+            
     return {
         "version": 2,
         "tickers": tickers,
@@ -103,7 +119,8 @@ def _migrate_data_if_needed(raw_data):
             "surplus_mode": "auto_compound",
             "default_sigma": 0.5,
             "default_hedge_ratio": 2.0,
-        }
+        },
+        "treasury_history": []
     }
 
 
@@ -111,12 +128,16 @@ def _migrate_data_if_needed(raw_data):
 # CHAIN ENGINE — Core Round Logic
 # ============================================================
 
-def run_chain_round(ticker_state, p_new, sigma, hedge_ratio, r=0.04, T=1.0):
+def run_chain_round(ticker_state: Dict[str, float], p_new: float, sigma: float, hedge_ratio: float, r: float = 0.04, T: float = 1.0) -> Optional[Dict[str, Any]]:
     """Core engine: compute one chain round.
     Returns a round_data dict (not yet committed)."""
-    c = ticker_state["fix_c"]
-    t = ticker_state["price"]
-    b = ticker_state["baseline"]
+    try:
+        c = float(ticker_state.get("fix_c", 0.0))
+        t = float(ticker_state.get("price", 0.0))
+        b = float(ticker_state.get("baseline", 0.0))
+    except (ValueError, TypeError):
+        return None
+
     if t <= 0 or p_new <= 0:
         return None
 
@@ -125,24 +146,32 @@ def run_chain_round(ticker_state, p_new, sigma, hedge_ratio, r=0.04, T=1.0):
     # 2. Harvest Profit (Volatility Premium)
     harvest = c * 0.5 * (sigma ** 2) * T
     total_income = shannon + harvest
+    
     # 3. Hedge Cost (Full Upfront Put)
     qty = (c / t) * hedge_ratio
     strike = t * 0.9
     premium = black_scholes(t, strike, T, r, sigma, 'put')
     hedge_cost = qty * premium
+    
     # 4. Surplus
     surplus = total_income - hedge_cost
     scale_up = max(0.0, surplus)
+    
     # 5. New State
     c_new = c + scale_up
     t_new = p_new  # re-center
+    
     # 6. Rollover (b stays continuous)
     # Since t_new = p_new, ln(p_new/t_new) = 0
-    rollover_delta = c * np.log(p_new / t) - c_new * np.log(p_new / t_new) if t_new != p_new else c * np.log(p_new / t)
+    if t_new != p_new:
+        rollover_delta = c * np.log(p_new / t) - c_new * np.log(p_new / t_new)
+    else:
+        rollover_delta = c * np.log(p_new / t)
+        
     b_new = b + rollover_delta
 
     return {
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "action": "Chain Round",
         "p_old": round(t, 4),
         "p_new": round(p_new, 4),
@@ -160,37 +189,48 @@ def run_chain_round(ticker_state, p_new, sigma, hedge_ratio, r=0.04, T=1.0):
     }
 
 
-def commit_round(data, ticker_idx, round_data):
+def commit_round(data: Dict[str, Any], ticker_idx: int, round_data: Dict[str, Any]) -> Dict[str, Any]:
     """Save round to ticker's rounds[], update current_state, sync legacy fields."""
-    ticker = data["tickers"][ticker_idx]
+    try:
+        ticker = data["tickers"][ticker_idx]
+    except (IndexError, KeyError):
+        return data
+        
     if "rounds" not in ticker:
         ticker["rounds"] = []
+        
     round_data["round_id"] = len(ticker["rounds"]) + 1
     ticker["rounds"].append(round_data)
 
     # Update current_state
-    old_ev = ticker.get("current_state", {}).get("cumulative_ev", 0.0)
+    old_ev = float(ticker.get("current_state", {}).get("cumulative_ev", 0.0))
+    hedge_cost = float(round_data.get("hedge_cost", 0.0))
+    ev_change = float(round_data.get("ev_change", hedge_cost))
+    
     ticker["current_state"] = {
-        "price": round_data["p_new"],
-        "fix_c": round_data["c_after"],
-        "baseline": round_data["b_after"],
-        "pool_cf_net": ticker.get("current_state", {}).get("pool_cf_net", 0.0),
-        "cumulative_ev": old_ev + round_data["hedge_cost"],
+        "price": float(round_data.get("p_new", 0.0)),
+        "fix_c": float(round_data.get("c_after", 0.0)),
+        "baseline": float(round_data.get("b_after", 0.0)),
+        "pool_cf_net": float(ticker.get("current_state", {}).get("pool_cf_net", 0.0)),
+        "cumulative_ev": max(0.0, old_ev + ev_change),
     }
 
     # Sync legacy Final
-    ticker["Final"] = f"{round_data['p_new']}, {round_data['c_after']}, {round_data['b_after']}"
+    ticker["Final"] = f"{round_data.get('p_new', 0)}, {round_data.get('c_after', 0)}, {round_data.get('b_after', 0)}"
 
     # Write legacy history entry
     h_idx = 1
     while f"history_{h_idx}" in ticker:
         h_idx += 1
-    desc = (f"ราคาอ้างอิง: {round_data['p_old']} → {round_data['p_new']} , "
-            f"ทุนคงที่: {round_data['c_before']} → {round_data['c_after']} , "
-            f"ราคาปัจจุบัน: {round_data['p_new']}")
-    calc = (f"{round_data['b_before']:.2f} += ({round_data['c_before']} × ln({round_data['p_new']}/{round_data['p_old']})) − "
-            f"({round_data['c_after']} × ln({round_data['p_new']}/{round_data['p_new']})) | "
-            f"c = {round_data['c_after']} , t = {round_data['p_new']} , b = {round_data['b_after']}")
+        
+    desc = (f"ราคาอ้างอิง: {round_data.get('p_old', 0)} → {round_data.get('p_new', 0)} , "
+            f"ทุนคงที่: {round_data.get('c_before', 0)} → {round_data.get('c_after', 0)} , "
+            f"ราคาปัจจุบัน: {round_data.get('p_new', 0)}")
+            
+    calc = (f"{round_data.get('b_before', 0):.2f} += ({round_data.get('c_before', 0)} × ln({round_data.get('p_new', 1)}/{round_data.get('p_old', 1) if round_data.get('p_old') else 1})) − "
+            f"({round_data.get('c_after', 0)} × ln({round_data.get('p_new', 1)}/{round_data.get('p_new', 1)})) | "
+            f"c = {round_data.get('c_after', 0)} , t = {round_data.get('p_new', 0)} , b = {round_data.get('b_after', 0)}")
+            
     ticker[f"history_{h_idx}"] = desc
     ticker[f"history_{h_idx}.1"] = calc
 
@@ -199,7 +239,7 @@ def commit_round(data, ticker_idx, round_data):
     return data
 
 
-def allocate_pool_funds(data, ticker_idx, amount, action_type="Scale Up", note=""):
+def allocate_pool_funds(data: Dict[str, Any], ticker_idx: int, amount: float, action_type: str = "Scale Up", note: str = "") -> Tuple[Dict[str, Any], bool]:
     """
     Allocate funds from global Pool CF to a specific ticker with various objectives.
     action_type:
@@ -211,7 +251,11 @@ def allocate_pool_funds(data, ticker_idx, amount, action_type="Scale Up", note="
     if amount <= 0 or amount > data.get("global_pool_cf", 0):
         return data, False
     
-    ticker = data["tickers"][ticker_idx]
+    try:
+        ticker = data["tickers"][ticker_idx]
+    except (IndexError, KeyError):
+        return data, False
+        
     state = ticker.get("current_state", {})
     
     # 1. Deduct from Global Pool
@@ -219,35 +263,33 @@ def allocate_pool_funds(data, ticker_idx, amount, action_type="Scale Up", note="
     
     # 2. Apply Logic based on Action
     if action_type == "Scale Up":
-        old_c = state.get("fix_c", 0)
+        old_c = float(state.get("fix_c", 0.0))
         state["fix_c"] = old_c + amount
         # Sync Final
-        t = state.get("price", 0)
-        b = state.get("baseline", 0)
+        t = float(state.get("price", 0.0))
+        b = float(state.get("baseline", 0.0))
         ticker["Final"] = f"{t}, {state['fix_c']:.2f}, {b:.2f}"
     
     elif action_type == "Pay Ev":
         # Reducing the visible "Burn Rate" debt
-        old_ev_debt = state.get("cumulative_ev", 0.0)
+        old_ev_debt = float(state.get("cumulative_ev", 0.0))
         state["cumulative_ev"] = max(0.0, old_ev_debt - amount)
         
     elif action_type in ["Buy Puts", "Buy Calls"]:
-        # Just an expenditure, maybe track in a log if we had one, 
-        # but for now it just consumes Pool CF to support the ticker positions.
+        # Just an expenditure, maybe track in a log if we had one.
         pass
         
     ticker["current_state"] = state
     data["tickers"][ticker_idx] = ticker
     
     # 3. Log History (Optional but good for tracking)
-    # We'll use the legacy history log for now to show the event
     h_idx = 1
     while f"history_{h_idx}" in ticker:
         h_idx += 1
     
     if action_type == "Scale Up":
         desc = f"🎱 Pool Allocation: {action_type} +${amount:,.2f}"
-        calc = f"fix_c updated to {state['fix_c']:.2f} | Note: {note}"
+        calc = f"fix_c updated to {state.get('fix_c', 0):.2f} | Note: {note}"
     elif action_type == "Pay Ev":
         desc = f"🎱 Pool Allocation: {action_type} -${amount:,.2f}"
         calc = f"Burn Rate (Ev Debt) reduced by {amount:,.2f} | Note: {note}"
@@ -262,11 +304,10 @@ def allocate_pool_funds(data, ticker_idx, amount, action_type="Scale Up", note="
     return data, True
 
 
-def parse_final(final_str):
+def parse_final(final_str: str) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """Parse 'Final' field → (t, c, b).  e.g. '12, 4000, -519.45' → (12.0, 4000.0, -519.45)"""
     if not final_str:
         return None, None, None
-    # Split on commas first (delimiter), then sanitize each part for Unicode minus
     parts = [sanitize_number_str(p) for p in final_str.split(",")]
     try:
         t = float(parts[0]) if len(parts) > 0 and parts[0] else None
@@ -276,66 +317,55 @@ def parse_final(final_str):
     except (ValueError, IndexError):
         return None, None, None
 
-def parse_beta_numbers(beta_str):
-    """Extract Ev and Lock_P&L from beta_Equation string.
-    e.g. ' Ev: -204.00 + Lock_P&L: +0'  → (ev, lock_pnl)
-    Ev = Extrinsic Value (มูลค่าทางเวลา / ค่า K จ่ายทิ้ง)
-    EV = Premium − Intrinsic Value
-    """
+def parse_beta_numbers(beta_str: str) -> Tuple[float, float]:
+    """Extract Ev and Lock_P&L from beta_Equation string."""
     ev, lock_pnl = 0.0, 0.0
     if not beta_str:
         return ev, lock_pnl
-    beta_str = sanitize_number_str(beta_str)
-    # Extract Ev
-    ev_match = re.search(r'Ev:\s*([+-]?[\d.]+)', beta_str)
-    if ev_match:
-        try:
+    try:
+        beta_str = sanitize_number_str(beta_str)
+        # Extract Ev
+        ev_match = re.search(r'Ev:\s*([+-]?[\d.]+)', beta_str)
+        if ev_match:
             ev = float(ev_match.group(1))
-        except ValueError:
-            pass
-    # Extract Lock_P&L (may have multiple values like +1618.48 +498|+231)
-    lock_match = re.search(r'Lock_P&L:\s*(.+)', beta_str)
-    if lock_match:
-        raw = lock_match.group(1).strip()
-        raw = raw.replace("|", "+")
-        nums = re.findall(r'[+-]?[\d.]+', raw)
-        for n in nums:
-            try:
+        # Extract Lock_P&L
+        lock_match = re.search(r'Lock_P&L:\s*(.+)', beta_str)
+        if lock_match:
+            raw = lock_match.group(1).strip()
+            raw = raw.replace("|", "+")
+            nums = re.findall(r'[+-]?[\d.]+', raw)
+            for n in nums:
                 lock_pnl += float(n)
-            except ValueError:
-                pass
-    return ev, lock_pnl
+        return ev, lock_pnl
+    except Exception:
+        return 0.0, 0.0
 
-def parse_beta_net(beta_mem_str):
-    """Extract Net value from beta_momory string. e.g. 'Net: -204.00' → -204.0"""
+def parse_beta_net(beta_mem_str: str) -> float:
+    """Extract Net value from beta_momory string."""
     if not beta_mem_str:
         return 0.0
-    beta_mem_str = sanitize_number_str(beta_mem_str)
-    m = re.search(r'Net:\s*([+-]?[\d.]+)', beta_mem_str)
-    if m:
-        try:
+    try:
+        beta_mem_str = sanitize_number_str(beta_mem_str)
+        m = re.search(r'Net:\s*([+-]?[\d.]+)', beta_mem_str)
+        if m:
             return float(m.group(1))
-        except ValueError:
-            return 0.0
-    return 0.0
+        return 0.0
+    except Exception:
+        return 0.0
 
-def parse_surplus_iv(surplus_str):
-    """Extract Surplus IV (Put premium income) from Surplus_Iv string.
-    e.g. 'Iv_Put: (4.98*100)= 498 | (2.31*100)=231' → 729.0
-    """
+def parse_surplus_iv(surplus_str: str) -> float:
+    """Extract Surplus IV (Put premium income) from Surplus_Iv string."""
     if not surplus_str or "No_Expiry" in surplus_str:
         return 0.0
-    surplus_str = sanitize_number_str(surplus_str)
-    matches = re.findall(r'=\s*([+-]?\d+(?:\.\d+)?)', surplus_str)
-    total = 0.0
-    for m in matches:
-        try:
-            total += float(m)
-        except ValueError:
-            pass
-    return total
+    try:
+        surplus_str = sanitize_number_str(surplus_str)
+        matches = re.findall(r'=\s*([+-]?\d+(?:\.\d+)?)', surplus_str)
+        total = sum(float(m) for m in matches)
+        return total
+    except Exception:
+        return 0.0
 
-def get_rollover_history(ticker_data):
+def get_rollover_history(ticker_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract all history entries in order, returning list of dicts."""
     history = []
     i = 1
@@ -344,42 +374,28 @@ def get_rollover_history(ticker_data):
         key_calc = f"history_{i}.1"
         if key_desc not in ticker_data and key_calc not in ticker_data:
             break
-        entry = {"step": i}
+        entry: Dict[str, Any] = {"step": i}
         entry["description"] = ticker_data.get(key_desc, "")
         entry["calculation"] = ticker_data.get(key_calc, "")
-        # Parse b value from calculation string
+        
         calc_str = entry["calculation"]
-        b_match = re.search(r'b\s*=\s*([+-]?[\d,.]+)', calc_str)
-        if b_match:
-            try:
-                entry["b"] = float(b_match.group(1).replace(",", ""))
-            except ValueError:
-                entry["b"] = None
-        else:
-            entry["b"] = None
-        # Parse c value
-        c_match = re.search(r'\|\s*c\s*=\s*([\d,.]+)', calc_str)
-        if c_match:
-            try:
-                entry["c"] = float(c_match.group(1).replace(",", ""))
-            except ValueError:
-                entry["c"] = None
-        else:
-            entry["c"] = None
-        # Parse t value
-        t_match = re.search(r',\s*t\s*=\s*([\d,.]+)', calc_str)
-        if t_match:
-            try:
-                entry["t"] = float(t_match.group(1).replace(",", ""))
-            except ValueError:
-                entry["t"] = None
-        else:
-            entry["t"] = None
+        try:
+            b_match = re.search(r'b\s*=\s*([+-]?[\d,.]+)', calc_str)
+            entry["b"] = float(b_match.group(1).replace(",", "")) if b_match else None
+            
+            c_match = re.search(r'\|\s*c\s*=\s*([\d,.]+)', calc_str)
+            entry["c"] = float(c_match.group(1).replace(",", "")) if c_match else None
+            
+            t_match = re.search(r',\s*t\s*=\s*([\d,.]+)', calc_str)
+            entry["t"] = float(t_match.group(1).replace(",", "")) if t_match else None
+        except Exception:
+            entry["b"], entry["c"], entry["t"] = None, None, None
+            
         history.append(entry)
         i += 1
     return history
 
-def build_portfolio_df(data):
+def build_portfolio_df(data: List[Dict[str, Any]]) -> pd.DataFrame:
     """Build a pandas DataFrame summarizing all tickers."""
     rows = []
     for item in data:
@@ -392,7 +408,7 @@ def build_portfolio_df(data):
             "Ticker": ticker,
             "Price (t)": t if t is not None else 0.0,
             "Fix_C": c if c is not None else 0.0,
-            "Baseline (b)": b if b else 0.0,
+            "Baseline (b)": b if b is not None else 0.0,
             "Ev (Extrinsic)": ev,
             "Lock P&L": lock_pnl,
             "Surplus IV": surplus_iv,
@@ -405,35 +421,35 @@ def build_portfolio_df(data):
 # CHAPTERS 0-7 — Placeholders
 # ============================================================
 
-def chapter_0_introduction():
+def chapter_0_introduction() -> None:
     st.header("บทที่ 0: Introduction")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_1_baseline():
+def chapter_1_baseline() -> None:
     st.header("บทที่ 1: Baseline")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_2_shannon_process():
+def chapter_2_shannon_process() -> None:
     st.header("บทที่ 2: Shannon Process")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_3_volatility_harvesting():
+def chapter_3_volatility_harvesting() -> None:
     st.header("บทที่ 3: Volatility Harvesting")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_4_black_swan_shield():
+def chapter_4_black_swan_shield() -> None:
     st.header("บทที่ 4: Black Swan Shield")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_5_dynamic_scaling():
+def chapter_5_dynamic_scaling() -> None:
     st.header("บทที่ 5: Dynamic Scaling")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_6_synthetic_dividend():
+def chapter_6_synthetic_dividend() -> None:
     st.header("บทที่ 6: Synthetic Dividend")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
-def chapter_7_collateral_magic():
+def chapter_7_collateral_magic() -> None:
     st.header("บทที่ 7: Collateral Magic")
     st.warning("Content currently unavailable. Please restore from backup if needed.")
 
@@ -441,10 +457,13 @@ def chapter_7_collateral_magic():
 # ============================================================
 # CHAPTER 8: CHAIN SYSTEM — imported from chain_system.py
 # ============================================================
-def chapter_chain_system():
-    from chain_system import chapter_chain_system as _run_chapter
-    _run_chapter()
-
+def chapter_chain_system() -> None:
+    try:
+        from chain_system import chapter_chain_system as _run_chapter
+        _run_chapter()
+    except ImportError:
+        st.warning("File `chain_system.py` not found or contains errors. Falling back to active Engine.")
+        st.info("💡 Plase run `app.py` for the main Engine view.")
 
 
 # ============================================================
@@ -457,13 +476,13 @@ chapter_3_convexity_engine = chapter_3_volatility_harvesting
 # MAIN APP NAVIGATION
 # ============================================================
 
-def main():
+def main() -> None:
     st.sidebar.title("Flywheel & Shannon's Demon")
     menu = st.sidebar.radio("Menu", [
         "Introduction", "Baseline", "Shannon Process", "Volatility Harvesting",
         "Black Swan Shield", "Dynamic Scaling", "Synthetic Dividend", "Collateral Magic",
         "Chain System (Active)", "Quiz", "Paper Trading", "Glossary"
-    ], index=8)  # Default to Chain System
+    ], index=8)
 
     if menu == "Introduction": chapter_0_introduction()
     elif menu == "Baseline": chapter_1_baseline()
@@ -478,11 +497,9 @@ def main():
     elif menu == "Paper Trading": paper_trading_workshop()
     elif menu == "Glossary": glossary_section()
 
-
-# Stub functions for missing features
-def master_study_guide_quiz(): pass
-def paper_trading_workshop(): pass
-def glossary_section(): pass
+def master_study_guide_quiz() -> None: pass
+def paper_trading_workshop() -> None: pass
+def glossary_section() -> None: pass
 
 if __name__ == "__main__":
     main()
