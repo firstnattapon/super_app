@@ -3,17 +3,14 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import re
 from datetime import datetime
 
 st.set_page_config(page_title="Chain System - Flywheel Shannon's Demon", layout="wide")
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
-    run_chain_round, commit_round, allocate_pool_funds,
-    parse_final, parse_beta_numbers, parse_beta_net,
-    parse_surplus_iv, get_rollover_history, build_portfolio_df,
-    black_scholes, sanitize_number_str,
+    run_chain_round, commit_round,
+    parse_beta_net, build_portfolio_df, get_rollover_history,
     chapter_0_introduction, chapter_1_baseline, chapter_2_volatility_harvest,
     chapter_3_convexity_engine, chapter_4_black_swan_shield,
     chapter_5_dynamic_scaling, chapter_6_synthetic_dividend,
@@ -21,17 +18,9 @@ from flywheels import (
     paper_trading_workshop, glossary_section
 )
 
-
-# ============================================================
-# HELPER: Treasury Logging
-# ============================================================
 def log_treasury_event(data, category, amount, note=""):
-    """
-    Log global treasury events (Funding, Allocation, Expense, Deploy).
-    """
     if "treasury_history" not in data:
         data["treasury_history"] = []
-    
     entry = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "category": category,
@@ -41,11 +30,6 @@ def log_treasury_event(data, category, amount, note=""):
         "note": note
     }
     data["treasury_history"].append(entry)
-
-
-# ============================================================
-# CHAPTER 8: CHAIN SYSTEM (ระบบลูกโซ่) — FINAL PRODUCT
-# ============================================================
 
 def chapter_chain_system():
     st.header("⚡ Chain System — Main Engine")
@@ -67,9 +51,7 @@ def chapter_chain_system():
         st.caption("มูลค่าทางเวลาที่จ่ายค่า LEAPS — เป็นต้นทุนที่ต้องชนะให้ได้จากระบบ Chain")
 
     data = load_trading_data()
-    tickers_list = get_tickers(data)
 
-    # REFACTORED: Combined Engine & History into one tab
     tab1, tab2, tab4, tab5 = st.tabs([
         "⚡ Active Dashboard",
         "⚡ Engine & History",
@@ -77,21 +59,12 @@ def chapter_chain_system():
         "➕ Manage Data"
     ])
 
-    with tab1:
-        _render_active_dashboard(data)
-    with tab2:
-        _render_engine_tab(data)
-    with tab4:
-        _render_payoff_profile_tab(data)
-    with tab5:
-        _render_manage_data(data)
+    with tab1: _render_active_dashboard(data)
+    with tab2: _render_engine_tab(data)
+    with tab4: _render_payoff_profile_tab(data)
+    with tab5: _render_manage_data(data)
 
-
-# ----------------------------------------------------------
-# TAB: Active Dashboard
-# ----------------------------------------------------------
 def _render_active_dashboard(data):
-    """Portfolio overview + Ticker cards + Burn Rate + Net Reality."""
     tickers_list = get_tickers(data)
     if not tickers_list:
         st.info("ยังไม่มีข้อมูล — เพิ่มหุ้นที่แท็บ ➕ Manage Data")
@@ -104,9 +77,7 @@ def _render_active_dashboard(data):
     total_surplus = df["Surplus IV"].sum()
     total_net = df["Net"].sum()
     pool_cf = data.get("global_pool_cf", 0.0)
-    total_burn = sum(
-        t_data.get("current_state", {}).get("cumulative_ev", 0.0) for t_data in tickers_list
-    )
+    total_burn = sum(t_data.get("current_state", {}).get("cumulative_ev", 0.0) for t_data in tickers_list)
 
     st.subheader("📊 Portfolio Overview")
     m1, m2, m3, m4 = st.columns(4)
@@ -117,7 +88,6 @@ def _render_active_dashboard(data):
               delta=f"Lock {total_lock:,.0f} + IV {total_surplus:,.0f} + Ev {total_ev:,.0f}",
               delta_color="normal" if total_net >= 0 else "inverse")
 
-    # ── Ev Efficiency Analysis ──
     gross_profit = total_lock + total_surplus
     efficiency = (gross_profit / total_burn) if total_burn > 0 else 0.0
     
@@ -128,10 +98,7 @@ def _render_active_dashboard(data):
     c3.metric("Ev Efficiency Ratio", f"{efficiency:.2f}x", 
               delta="Sustainable" if efficiency >= 1.0 else "Bleeding",
               delta_color="normal" if efficiency >= 1.0 else "inverse")
-    c4.caption(f"""
-    **Ratio > 1.0** = กำไรจากระบบชนะค่าเช่า (Time Decay)
-    **Ratio < 1.0** = ยังต้องการ Direction ช่วย
-    """)
+    c4.caption("**Ratio > 1.0** = กำไรชนะ Time Decay\n\n**Ratio < 1.0** = ต้องการ Direction ช่วย")
 
     st.divider()
 
@@ -157,18 +124,6 @@ def _render_active_dashboard(data):
                     st.caption(f"Net: ${net_val:,.2f}")
 
     st.divider()
-
-    st.subheader("Net P&L per Ticker")
-    colors = ["#00c853" if v >= 0 else "#ff1744" for v in df["Net"]]
-    fig_bar = go.Figure(data=[go.Bar(
-        x=df["Ticker"], y=df["Net"], marker_color=colors,
-        text=[f"${v:,.0f}" for v in df["Net"]], textposition="outside",
-    )])
-    fig_bar.update_layout(title="Net P&L = Ev + Lock P&L (per ticker)",
-        xaxis_title="Ticker", yaxis_title="Net P&L ($)", height=400, plot_bgcolor="rgba(0,0,0,0)")
-    fig_bar.add_hline(y=0, line_dash="dash", line_color="gray")
-    st.plotly_chart(fig_bar, use_container_width=True)
-
     st.subheader("Waterfall: Ev → Lock P&L → Net")
     fig_wf = go.Figure(go.Waterfall(
         x=["Ev (Cost)", "Lock P&L", "Surplus IV", "Net"],
@@ -182,17 +137,11 @@ def _render_active_dashboard(data):
     fig_wf.update_layout(title="Portfolio P&L Waterfall", height=380)
     st.plotly_chart(fig_wf, use_container_width=True)
 
-
-# ----------------------------------------------------------
-# TAB: ⚡ Engine (Run Round + Pool CF) & History Consolidated
-# ----------------------------------------------------------
 def _render_engine_tab(data):
-    """Unified Engine: Run Chain Round (left) + Pool CF (right) + History (Bottom)."""
     tickers_list = get_tickers(data)
     pool_cf = data.get("global_pool_cf", 0.0)
     ev_reserve = data.get("global_ev_reserve", 0.0)
 
-    # ── Top bar: Global Stats ──
     with st.container(border=True):
         top1, top2, top3, top4 = st.columns(4)
         top1.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
@@ -205,16 +154,9 @@ def _render_engine_tab(data):
         st.info("ยังไม่มี ticker — เพิ่มที่แท็บ ➕ Manage Data ก่อน")
         return
 
-    # ── Two-column layout: Run Round | Pool CF ──
     col_left, col_right = st.columns([3, 2], gap="large")
-
-    # ==============================
-    # LEFT COLUMN — Run Chain Round
-    # ==============================
     with col_left:
         st.subheader("🔗 Run Chain Round")
-        st.caption("เลือก Ticker → ใส่ราคาปัจจุบัน → ระบบคำนวณอัตโนมัติ")
-
         ticker_names = [d.get("ticker", "???") for d in tickers_list]
         selected = st.selectbox("เลือก Ticker", ticker_names, key="run_round_ticker")
         idx = ticker_names.index(selected)
@@ -234,130 +176,50 @@ def _render_engine_tab(data):
         default_hr = settings.get("default_hedge_ratio", 2.0)
 
         with st.form("run_round_form", clear_on_submit=False):
-            st.markdown("##### 📊 Input — ราคาและ Config")
             r1, r2, r3 = st.columns(3)
-            with r1:
-                p_new = st.number_input(
-                    f"ราคาใหม่ P (ปัจจุบัน t = ${state.get('price', 0):.2f})",
-                    min_value=0.01, value=round(state.get("price", 10.0) * 1.1, 2), step=1.0, key="rr_pnew")
-            with r2:
-                sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05, key="rr_sigma")
-            with r3:
-                hedge_ratio = st.number_input("Hedge Ratio (x Put)", min_value=0.0, value=default_hr, step=0.5, key="rr_hr")
+            with r1: p_new = st.number_input(f"ราคาใหม่ P", min_value=0.01, value=round(state.get("price", 10.0) * 1.1, 2), step=1.0)
+            with r2: sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05)
+            with r3: hedge_ratio = st.number_input("Hedge Ratio (x Put)", min_value=0.0, value=default_hr, step=0.5)
             preview_btn = st.form_submit_button("🔍 Preview Calculation")
 
         if preview_btn and p_new > 0:
             preview = run_chain_round(state, p_new, sigma, hedge_ratio)
-            if preview is None:
-                st.error("Invalid price — cannot run round")
-                return
-            st.session_state["_pending_round"] = preview
-            st.session_state["_pending_ticker_idx"] = idx
-            st.session_state["_pending_ticker_name"] = selected
+            if preview:
+                st.session_state["_pending_round"] = preview
+                st.session_state["_pending_ticker_idx"] = idx
+                st.session_state["_pending_ticker_name"] = selected
 
         if "_pending_round" in st.session_state and st.session_state.get("_pending_ticker_name") == selected:
             rd = st.session_state["_pending_round"]
             st.markdown("---")
-            # st.subheader("📋 Preview — ผลลัพธ์ก่อน Commit")
-
-            st.caption("ผลลัพธ์ของ Round นี้ (แก้ไขได้ก่อน Commit):")
-            
-            # --- Upper Row: PnL Components ---
             p1, p2, p3, p4 = st.columns(4)
-            
-            new_shannon = p1.number_input(
-                "Shannon Profit",
-                value=float(rd['shannon_profit']),
-                step=10.0, format="%.2f", key="preview_shannon"
-            )
-            new_harvest = p2.number_input(
-                "Harvest Profit",
-                value=float(rd['harvest_profit']),
-                step=10.0, format="%.2f", key="preview_harvest"
-            )
-            new_hedge = p3.number_input(
-                "Hedge Cost",
-                value=float(rd['hedge_cost']),
-                step=10.0, format="%.2f", key="preview_hedge"
-            )
-            new_surplus = p4.number_input(
-                "Surplus (Free Risk)", 
-                value=float(rd['surplus']), 
-                step=10.0, format="%.2f", key="preview_surplus"
-            )
+            new_shannon = p1.number_input("Shannon Profit", value=float(rd['shannon_profit']), step=10.0, format="%.2f")
+            new_harvest = p2.number_input("Harvest Profit", value=float(rd['harvest_profit']), step=10.0, format="%.2f")
+            new_hedge = p3.number_input("Hedge Cost", value=float(rd['hedge_cost']), step=10.0, format="%.2f")
+            new_surplus = p4.number_input("Surplus (Free Risk)", value=float(rd['surplus']), step=10.0, format="%.2f")
 
-            # --- Lower Row: State Variables ---
             p5, p6, p7, p8 = st.columns(4)
-            
-            new_c_after = p5.number_input(
-                "New fix_c", 
-                value=float(rd['c_after']), 
-                step=100.0, format="%.0f", key="preview_c_after"
-            )
-            new_p_new = p6.number_input(
-                "New Price", 
-                value=float(rd['p_new']), 
-                step=0.1, format="%.2f", key="preview_p_new"
-            )
-            new_b_after = p7.number_input(
-                "New Baseline", 
-                value=float(rd['b_after']), 
-                step=0.1, format="%.2f", key="preview_b_after"
-            )
-            new_sigma = p8.number_input(
-                "Volatility (σ)",
-                value=float(rd['sigma']),
-                step=0.01, format="%.2f", key="preview_sigma"
-            )
-            
-            # Show diffs for reference
-            p1.caption(f"Ref: P {rd['p_old']} → {rd['p_new']}")
-            p2.caption(f"Ref: σ={rd['sigma']}")
-            p3.caption(f"Ref: -{rd['hedge_ratio']}x Put")
-            p5.caption(f"Was: ${rd['c_before']:,.0f} > ${rd['c_after']:,.0f}")
-            p6.caption(f"Was: ${rd['p_old']:,.2f} > ${rd['p_new']:,.2f}")
-            p7.caption(f"Was: ${rd['b_before']:,.2f} > ${rd['b_after']:,.2f}")
+            new_c_after = p5.number_input("New fix_c", value=float(rd['c_after']), step=100.0, format="%.0f")
+            new_p_new = p6.number_input("New Price", value=float(rd['p_new']), step=0.1, format="%.2f")
+            new_b_after = p7.number_input("New Baseline", value=float(rd['b_after']), step=0.1, format="%.2f")
+            new_sigma = p8.number_input("Volatility (σ)", value=float(rd['sigma']), step=0.01, format="%.2f")
 
-            if st.button("✅ Commit Round — บันทึกถาวร", type="primary", key="commit_round"):
-                # Update rd with edited values
-                rd['shannon_profit'] = new_shannon
-                rd['harvest_profit'] = new_harvest
-                rd['hedge_cost'] = new_hedge
-                rd['surplus'] = new_surplus
-                
-                rd['c_after'] = new_c_after
-                rd['p_new'] = new_p_new
-                rd['b_after'] = new_b_after
-                rd['sigma'] = new_sigma
-                
-                # Recalculate scale_up roughly based on change in c
-                rd['scale_up'] = rd['c_after'] - rd['c_before']
-
+            if st.button("✅ Commit Round — บันทึกถาวร", type="primary"):
+                rd.update({'shannon_profit': new_shannon, 'harvest_profit': new_harvest, 'hedge_cost': new_hedge, 'surplus': new_surplus, 'c_after': new_c_after, 'p_new': new_p_new, 'b_after': new_b_after, 'sigma': new_sigma, 'scale_up': new_c_after - rd['c_before']})
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-                del st.session_state["_pending_ticker_idx"]
-                del st.session_state["_pending_ticker_name"]
                 del st.session_state["_pending_round"]
-                st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}, b = ${rd['b_after']:,.2f}")
+                st.success(f"✅ Round committed for {selected}! fix_c = ${rd['c_after']:,.2f}")
                 st.rerun()
 
-    # ==============================
-    # RIGHT COLUMN — Pool CF & Allocation
-    # ==============================
     with col_right:
         st.subheader("🎱 Pool CF & Allocation")
-        st.caption("เติมเงิน (Funding) หรือ เบิกจ่าย (Deploy)")
-
-        # ── 1. Add to Pool (Funding) ──
         with st.form("add_pool_cf_form", clear_on_submit=True):
-            st.markdown("##### 📥 Add Funding to Pool")
             c1, c2 = st.columns([2, 1])
-            with c1:
-                amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, key="add_pool_amt")
-            with c2:
+            with c1: amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0)
+            with c2: 
                 st.write("")
                 st.write("")
                 btn_add = st.form_submit_button("💰 Add Fund", type="primary")
-            
             if btn_add and amount > 0:
                 data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
                 log_treasury_event(data, "Funding", amount, "Added to Pool CF")
@@ -366,104 +228,27 @@ def _render_engine_tab(data):
                 st.rerun()
 
         st.divider()
-
-        # ── 2. Deploy Capital (Ticker Injection) ──
         if tickers_list:
-            st.markdown("##### 🚀 Deploy Capital (Ticker Injection)")
-            st.caption("อัดฉีดเงินจาก Pool CF เข้า Ticker (ซื้อของ / จ่ายหนี้ / ขยายพอร์ต)")
-
-            ticker_names_deploy = [d.get("ticker", "???") for d in tickers_list]
-            deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy, key="deploy_ticker")
-            
+            deploy_ticker = st.selectbox("Select Ticker", ticker_names_deploy := [d.get("ticker", "???") for d in tickers_list], key="deploy_ticker")
             d_idx = ticker_names_deploy.index(deploy_ticker)
             t_data_deploy = tickers_list[d_idx]
-            state_deploy = t_data_deploy.get("current_state", {})
-            cur_c = state_deploy.get("fix_c", 0)
-            cur_t = state_deploy.get("price", 0)
-            cur_b = state_deploy.get("baseline", 0)
-            cur_ev_debt = state_deploy.get("cumulative_ev", 0.0)
-            
-            # Inherit stats to keep charts smooth
-            cur_sigma = t_data_deploy.get("rounds", [{}])[-1].get("sigma", 0.5) if t_data_deploy.get("rounds") else 0.5
-            cur_hr = t_data_deploy.get("rounds", [{}])[-1].get("hedge_ratio", 2.0) if t_data_deploy.get("rounds") else 2.0
+            cur_c = t_data_deploy.get("current_state", {}).get("fix_c", 0)
+            cur_t = t_data_deploy.get("current_state", {}).get("price", 0)
+            cur_b = t_data_deploy.get("current_state", {}).get("baseline", 0)
 
             with st.form("deploy_round_form", clear_on_submit=False):
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    action_type = st.selectbox("Objective", [
-                        "📈 Scale Up (เพิ่มทุน fix_c)",
-                        "🛡️ Buy Puts (ซื้อประกันเพิ่ม)",
-                        "🎯 Buy Calls (เก็งกำไร)",
-                        "⏳ Pay Ev (จ่ายหนี้ให้ Ticker)"
-                    ], key="deploy_action_round")
-                with col_d2:
-                    d_amt = st.number_input(
-                        f"Amount ($) [Pool Funding]", 
-                        min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0,
-                        value=0.0, step=100.0, key="deploy_amt_round"
-                    )
-                
-                # Optional: Target fix_c for manual override (e.g. Value=2000 but Fund=200)
-                manual_new_c = st.number_input(
-                    "Target fix_c (Optional Override)", 
-                    min_value=0.0, value=0.0, step=100.0, 
-                    help="ระบุเป้าหมาย fix_c ใหม่ หากต้องการให้มูลค่าเพิ่มมากกว่าเงินที่เติม (เช่น Value +2000 แต่จ่ายจริง 200)"
-                )
-
-                d_note = st.text_input("Note", value="", placeholder="Reason for deployment...")
-                
+                d1, d2 = st.columns(2)
+                with d1: action_type = st.selectbox("Objective", ["📈 Scale Up", "🛡️ Buy Puts", "🎯 Buy Calls", "⏳ Pay Ev"])
+                with d2: d_amt = st.number_input("Amount ($) [Pool Funding]", min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0, value=0.0, step=100.0)
+                manual_new_c = st.number_input("Target fix_c (Optional Override)", min_value=0.0, value=0.0, step=100.0)
+                d_note = st.text_input("Note", value="")
                 submitted_deploy = st.form_submit_button("🔍 Preview Deployment")
-            
+
             if submitted_deploy and d_amt > 0:
-                mock_scale_up = 0.0
-                mock_new_c = cur_c
-                mock_ev_change = 0.0
-                note_prefix = ""
-
-                if "Scale Up" in action_type:
-                    # Check for Manual Override
-                    if manual_new_c > cur_c:
-                        mock_new_c = manual_new_c
-                        mock_scale_up = manual_new_c - cur_c
-                    else:
-                        mock_scale_up = d_amt
-                        mock_new_c = cur_c + d_amt
-                        
-                    note_prefix = "[Scale Up]"
-                elif "Buy Puts" in action_type:
-                    note_prefix = "[Buy Puts]"
-                elif "Buy Calls" in action_type:
-                    note_prefix = "[Buy Calls]"
-                elif "Pay Ev" in action_type:
-                    mock_ev_change = -d_amt
-                    note_prefix = "[Pay Ev]"
-
-                final_note = f"{note_prefix} {d_note}".strip()
-                
-                # Show explicit message if Scale Up != Amount
-                if mock_scale_up > d_amt:
-                     st.info(f"💡 **Preview:** Scale Up +${mock_scale_up:,.0f} (Funded ${d_amt:,.0f}) to {deploy_ticker}")
-                else:
-                     st.info(f"💡 **Preview:** {action_type} ${d_amt:,.2f} to {deploy_ticker}")
-                
+                mock_scale_up, mock_new_c = (manual_new_c - cur_c, manual_new_c) if manual_new_c > cur_c else (d_amt, cur_c + d_amt)
                 injection_round = {
-                    "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
-                    "action": "Injection",
-                    "p_old": cur_t,
-                    "p_new": cur_t,
-                    "c_before": cur_c,
-                    "c_after": mock_new_c,
-                    "shannon_profit": 0.0,
-                    "harvest_profit": 0.0,
-                    "hedge_cost": 0.0,
-                    "surplus": mock_scale_up if mock_scale_up > 0 else -d_amt,
-                    "scale_up": mock_scale_up,
-                    "b_before": cur_b,
-                    "b_after": cur_b,
-                    "hedge_ratio": cur_hr,  # Inherit for chart continuity
-                    "sigma": cur_sigma,     # Inherit for chart continuity
-                    "note": final_note,
-                    "ev_change": mock_ev_change
+                    "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "action": "Injection", "p_old": cur_t, "p_new": cur_t, "c_before": cur_c, "c_after": mock_new_c,
+                    "surplus": mock_scale_up if "Scale Up" in action_type else -d_amt, "scale_up": mock_scale_up if "Scale Up" in action_type else 0, "b_before": cur_b, "b_after": cur_b, "note": f"[{action_type.split()[1]}] {d_note}"
                 }
                 st.session_state["_pending_injection"] = injection_round
                 st.session_state["_pending_injection_idx"] = d_idx
@@ -472,551 +257,241 @@ def _render_engine_tab(data):
 
             if "_pending_injection" in st.session_state and st.session_state.get("_pending_injection_idx") == d_idx:
                 p_inj = st.session_state["_pending_injection"]
-                p_type = st.session_state.get("_pending_injection_type", "")
-                
-                dc1, dc2, dc3 = st.columns(3)
-                dc1.metric("fix_c Change", f"${p_inj['c_before']:,.0f} → ${p_inj['c_after']:,.0f}")
-                dc2.metric("Pool Deduction", f"-${st.session_state['_pending_injection_amt']:,.2f}")
-                
-                if "Pay Ev" in p_type:
-                    dc3.metric("Burn Rate (Ev)", f"${cur_ev_debt:,.2f} → ${max(0, cur_ev_debt - st.session_state['_pending_injection_amt']):,.2f}", delta="Reduced Debt")
-                
-                if st.button("🚀 Confirm Deployment", type="primary", key="confirm_deploy"):
+                if st.button("🚀 Confirm Deployment", type="primary"):
                     amt = st.session_state["_pending_injection_amt"]
                     if data["global_pool_cf"] >= amt:
                         data["global_pool_cf"] -= amt
-                        if "Pay Ev" in p_type:
-                             t_data_deploy["current_state"]["cumulative_ev"] = max(0.0, cur_ev_debt - amt)
-                        
-                        # Log to Treasury (Outflow)
-                        log_treasury_event(data, "Deploy", -amt, f"Deployed to {deploy_ticker} ({p_type})")
-                        
+                        log_treasury_event(data, "Deploy", -amt, f"Deployed to {deploy_ticker}")
                         commit_round(data, d_idx, p_inj)
                         del st.session_state["_pending_injection"]
-                        del st.session_state["_pending_injection_idx"]
-                        del st.session_state["_pending_injection_amt"]
-                        del st.session_state["_pending_injection_type"]
-                        st.success(f"✅ Transaction Complete: {p_type} ${amt:,.2f}!")
+                        st.success(f"✅ Complete: {st.session_state['_pending_injection_type']} ${amt:,.2f}!")
                         st.rerun()
-                    else:
-                        st.error("❌ Pool fund insufficient")
-        
-        st.divider()
 
-        # ── 3. Pool EV LEAPS (Balance & Expenses) ──
-        with st.expander("🛡️ Manage Pool EV LEAPS (Income & Expenses)"):
-            st.caption("จัดการกองทุน EV LEAPS: รับเงินจาก Pool CF หรือ จ่ายค่า LEAPS")
-            
-            # Allocation (Income)
-            st.markdown("##### 📥 Allocate (Income from Pool CF)")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                alloc_amt = st.number_input("Allocate Amount ($)", min_value=0.0, max_value=float(pool_cf), step=100.0, key="alloc_leaps")
-            with col_b:
-                if st.button("📥 Allocate to Pool EV LEAPS"):
-                    if alloc_amt > 0 and pool_cf >= alloc_amt:
-                        data["global_pool_cf"] -= alloc_amt
-                        data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + alloc_amt
-                        log_treasury_event(data, "Allocation", alloc_amt, "Pool CF -> EV Reserve")
-                        save_trading_data(data)
-                        st.success(f"Allocated ${alloc_amt:,.2f} to Pool EV LEAPS")
-                        st.rerun()
-            
-            st.divider()
-            
-            # Expenses (Pay LEAPS)
-            st.markdown("##### 📤 Pay LEAPS (Expense/Adjustment)")
-            col_c, col_d = st.columns(2)
-            with col_c:
-                # Allow negative values. Negative = Expense/Debt. Positive = Refund/Income.
-                pay_leaps_amt = st.number_input("LEAPS Net Flow ($)", value=0.0, step=100.0, key="pay_leaps_cost", help="Negative (-) = Expense/Cost. Positive (+) = Refund/Deposit.")
-            with col_d:
-                if st.button("💾 Record Flow"):
-                    # Additive logic: Balance += Input
-                    data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + pay_leaps_amt
-                    
-                    cat = "Income" if pay_leaps_amt >= 0 else "Expense"
-                    log_treasury_event(data, cat, pay_leaps_amt, "Manual Adjustment/Payment")
-                    
-                    save_trading_data(data)
-                    
-                    if pay_leaps_amt < 0:
-                        st.success(f"Recorded Expense of ${abs(pay_leaps_amt):,.2f} (Balance Reduced)")
-                    else:
-                        st.success(f"Recorded Income/Refund of ${pay_leaps_amt:,.2f} (Balance Increased)")
-                    st.rerun()
-            
-            st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
-
-    # ==============================
-    # BOTTOM SECTION — Consolidated History & Treasury Log
-    # ==============================
     st.divider()
-    
-    # Create two columns for history: Ticker Ops vs. Treasury Ops
     h1, h2 = st.columns([3, 2], gap="large")
-    
-    with h1:
-        _render_consolidated_history(t_data)
-        
-    with h2:
-        _render_treasury_log(data)
-
+    with h1: _render_consolidated_history(t_data)
+    with h2: _render_treasury_log(data)
 
 def _render_treasury_log(data):
-    """
-    Render Treasury & Operations History (Global Pool Events).
-    """
     st.subheader("🏛️ Treasury & Ops History")
-    st.caption("ประวัติการจัดการเงินกองกลาง (Pool CF & EV Reserve)")
-    
     history = data.get("treasury_history", [])
-    if not history:
-        st.info("No treasury operations yet.")
-        return
-        
-    # Prepare DataFrame
-    rows = []
-    for entry in history:
-        cat = entry.get("category", "General")
-        amt = entry.get("amount", 0.0)
-        
-        # Color coding for Amount
-        amt_str = f"${amt:,.2f}"
-        
-        rows.append({
-            "Date": entry.get("date", "")[5:], # Short date MM-DD HH:MM
-            "Action": cat,
-            "Amount": amt, 
-            "Pool CF": f"${entry.get('pool_cf_balance', 0):,.0f}",
-            "EV Res": f"${entry.get('ev_reserve_balance', 0):,.0f}",
-            "Note": entry.get("note", "")
-        })
-        
-    df = pd.DataFrame(rows[::-1]) # Newest first
-    
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Amount": st.column_config.NumberColumn(
-                "Amount", 
-                format="$%.2f",
-                step=100
-            ),
-            "Action": st.column_config.TextColumn("Action", width="small"),
-            "Note": st.column_config.TextColumn("Note", width="medium"),
-        }
-    )
-
+    if history:
+        st.dataframe(pd.DataFrame([{"Date": e.get("date","")[5:], "Action": e.get("category",""), "Amount": e.get("amount",0), "Note": e.get("note","")} for e in history])[::-1], use_container_width=True, hide_index=True)
 
 def _render_consolidated_history(t_data):
-    """
-    Combined History View:
-    Table only (Graphs moved to Payoff Profile).
-    """
-    ticker = t_data.get("ticker", "???")
+    st.subheader(f"📜 {t_data.get('ticker','???')} — History")
     rounds = t_data.get("rounds", [])
-
-    st.subheader(f"📜 {ticker} — Operations History")
-
     if not rounds:
-        # Fallback to Legacy if no structured rounds
-        legacy_hist = get_rollover_history(t_data)
-        if legacy_hist:
-            st.warning("⚠️ Showing Legacy History (No structured rounds yet). Run a round to upgrade.")
-            st.dataframe(pd.DataFrame(legacy_hist))
-        else:
-            st.info("No history available yet.")
+        legacy = get_rollover_history(t_data)
+        if legacy: st.dataframe(pd.DataFrame(legacy))
         return
-    
-    table_rows = []
-
-    for i, rd in enumerate(rounds):
-        hedge = rd.get("hedge_cost", 0.0)
-        
-        # ── Refactored: Hedge Cost (Total Premium) (No more Ev Split) ──
-        # Intrinsic no longer calculated for table display to simplify cash flow view.
-        
-        hedge_cost_label = "—"
-        
-        if "Pay Ev" in rd.get("note", "") or rd.get("ev_change", 0) < 0:
-             payment = abs(rd.get("ev_change", 0))
-             hedge_cost_label = f"🟢 Paid -${payment:,.0f}"
-        elif hedge > 0:
-             # Just show total cost (cash outflow)
-             hedge_cost_label = f"🔴 Cost -${hedge:,.0f}"
-
-        action_short = rd.get("action", "Round")
-        if rd.get("scale_up", 0) > 0:
-            action_short = f"Scale +${rd['scale_up']:,.0f}"
-        if "Injection" in rd.get("action", ""):
-            action_short = "Inject/Deploy"
-            
-        # Format: Old > New
-        p_old = rd.get('p_old', 0)
-        p_new = rd.get('p_new', 0)
-        c_before = rd.get('c_before', 0)
-        c_after = rd.get('c_after', 0)
-        b_before = rd.get('b_before', 0)
-        b_after = rd.get('b_after', 0)
-
-        sigma_val = rd.get("sigma", 0.0)
-
-        table_rows.append({
-            "Date": rd.get("date", "")[:10],  # Short date
-            "Action": action_short,
-            "Price": f"${p_old:,.2f} > ${p_new:,.2f}",
-            "fix_c": f"${c_before:,.0f} > ${c_after:,.0f}",
-            "b": f"${b_before:,.2f} > ${b_after:,.2f}",
-            "Hedge Cost": hedge_cost_label,
-            "Net Result": f"${rd.get('surplus', 0):,.2f}",
-            "Sigma": f"{sigma_val:.2f}",
-            "Note": rd.get("note", "")
-        })
-
-    # Render Table
-    st.markdown("##### 🧾 Detailed Log")
-    df_table = pd.DataFrame(table_rows[::-1]) # Reverse order (Newest first)
-    
-    st.dataframe(
-        df_table, 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Hedge Cost": st.column_config.TextColumn("Hedge Cost", width="medium", help="Red = Premium Paid (Cost), Green = Pay/Recover"),
-            "Net Result": st.column_config.TextColumn("Surplus", help="Positive = Scale Up, Negative = Cost"),
-            "Sigma": st.column_config.TextColumn("σ", width="small", help="Volatility used for Harvest Calculation")
-        }
-    )
-
+    st.dataframe(pd.DataFrame([{
+        "Date": rd.get("date", "")[:10], "Action": f"Scale +${rd['scale_up']:,.0f}" if rd.get("scale_up", 0) > 0 else rd.get("action", "Round"),
+        "Price": f"${rd.get('p_old',0):,.2f} > ${rd.get('p_new',0):,.2f}", "fix_c": f"${rd.get('c_before',0):,.0f} > ${rd.get('c_after',0):,.0f}",
+        "b": f"${rd.get('b_before',0):,.2f} > ${rd.get('b_after',0):,.2f}", "Net Result": f"${rd.get('surplus',0):,.2f}"
+    } for rd in rounds])[::-1], use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------------
-# TAB: Payoff Profile 🔗 Run Chain Round
+# TAB: Payoff Profile Simulator
 # ----------------------------------------------------------
 def _render_payoff_profile_tab(data):
-    """
-    Visual Analytics Hub:
-    1. History Graphs (Ev Battle, Growth) - Linked to Selected Ticker
-    2. Payoff Profile & Sankey (Simulation/Projections)
-    """
     tickers_list = get_tickers(data)
-    
-    # Try to get selected ticker from Session State
     selected_ticker = st.session_state.get("run_round_ticker")
-    t_data = None
-    
-    if selected_ticker:
-        for t in tickers_list:
-            if t["ticker"] == selected_ticker:
-                t_data = t
-                break
+    t_data = next((t for t in tickers_list if t["ticker"] == selected_ticker), tickers_list[0] if tickers_list else None)
     
     if not t_data:
         st.info("👈 Please select a Ticker in the 'Engine & History' tab first.")
-        if tickers_list:
-            t_data = tickers_list[0]
-            st.caption(f"Showing default: {t_data['ticker']}")
-        else:
-            return
+        return
 
-    # 📊 SECTION 1: HISTORY GRAPHS (Moved from Engine)
-    st.subheader(f"📈 History Analysis: {t_data['ticker']}")
-    
-    rounds = t_data.get("rounds", [])
-    if rounds:
-        cum_ev_burn = 0.0
-        cum_profit = 0.0
-        chart_data = []
-
-        for i, rd in enumerate(rounds):
-            hedge = rd.get("hedge_cost", 0.0)
-            shannon = rd.get("shannon_profit", 0)
-            harvest = rd.get("harvest_profit", 0)
-            total_income = shannon + harvest
-            
-            # ── Calculate Ev Burn (Logic Match) ──
-            p_old = rd.get("p_old", 0)
-            p_new = rd.get("p_new", 0)
-            c_before = rd.get("c_before", 0)
-            h_ratio = rd.get("hedge_ratio", 2.0)
-            # Handle potential None or 0 hedge_ratio
-            if h_ratio is None: h_ratio = 2.0
-
-            strike = rd.get("strike_price", p_old * 0.9 if p_old > 0 else 0)
-            qty = (c_before / p_old * h_ratio) if p_old > 0 else 0
-            
-            intrinsic_val = max(0, strike - p_new) * qty
-            ev_burn = max(0, hedge - intrinsic_val)
-
-            if hedge > 0:
-                 cum_ev_burn += ev_burn  # Track ONLY extrinsic burn
-            
-            if total_income > 0:
-                cum_profit += total_income
-                
-            chart_data.append({
-                "Round": i+1,
-                "Burn": cum_ev_burn,
-                "Profit": cum_profit,
-                "c": rd.get("c_after", 0),
-                "b": rd.get("b_after", 0)
-            })
-            
-        df_chart = pd.DataFrame(chart_data)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            fig_ev = go.Figure()
-            fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Burn"], 
-                                        mode='lines', name='Cum. Ev Burn', line=dict(color='#ff1744', width=2)))
-            fig_ev.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["Profit"], 
-                                        mode='lines', name='Cum. Harvest', line=dict(color='#00c853', width=2)))
-            fig_ev.update_layout(title="⚔️ Ev Battle: Cost vs. Harvest", 
-                                 xaxis_title="Round", yaxis_title="Cumulative ($)", margin=dict(t=30, b=0, l=0, r=0))
-            st.plotly_chart(fig_ev, use_container_width=True)
-
-        with c2:
-            fig_evo = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["c"], 
-                                         name="fix_c", line=dict(color='#ff9800')), secondary_y=False)
-            fig_evo.add_trace(go.Scatter(x=df_chart["Round"], y=df_chart["b"], 
-                                         name="Baseline", line=dict(color='#2196f3', dash='dot')), secondary_y=True)
-            fig_evo.update_layout(title="📈 Growth Evolution (c & b)", margin=dict(t=30, b=0, l=0, r=0))
-            st.plotly_chart(fig_evo, use_container_width=True)
-    else:
-        st.warning("No history data to plot.")
-
-    st.divider()
-
-    # 📊 SECTION 2: PAYOFF PROFILE
-    st.subheader(f"📐 Payoff Profile Simulator")
-    st.caption("จำลองโครงสร้างผลตอบแทน (อ้างอิงสถานะปัจจุบันได้)")
+    st.subheader(f"📐 Advanced Payoff Profile Simulator")
+    st.caption("จำลองโครงสร้างผลตอบแทน (Logarithmic 11-Line Model - React Port)")
 
     cur_state = t_data.get("current_state", {})
-    def_c = cur_state.get("fix_c", 10000.0)
-    def_p = cur_state.get("price", 100.0)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        fix_c = st.number_input("Fixed Capital ($)", 1000.0, 1000000.0, float(def_c), 1000.0, key="chain_c_payoff")
-        P0 = st.number_input("Current Price ($)", 0.1, 10000.0, float(def_p), 1.0, key="chain_p0_payoff")
-        sigma = st.slider("Volatility (σ)", 0.1, 2.0, 0.5, 0.1, key="chain_sig_payoff")
+    def_c = float(cur_state.get("fix_c", 10000.0))
+    def_p = float(cur_state.get("price", 100.0))
+
+    with st.expander("🛠️ Simulator Controls", expanded=True):
+        col_c1, col_c2, col_c3 = st.columns(3)
+        with col_c1:
+            x0_1 = st.number_input("x0_1 (threshold y1/y5)", min_value=0.1, max_value=1000.0, value=def_p, step=1.0)
+            constant1 = st.number_input("Constant y1/y5 (fix_c)", min_value=100.0, value=def_c, step=100.0)
+            b1 = st.number_input("b1 (bias y1/y5)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            delta1 = st.slider("Delta 1 (δ1)", 0.0, 2.0, 0.2, 0.05)
+            long_shares = st.number_input("Shares Long (y10)", min_value=0, value=100)
+            long_entry = st.number_input("Long Entry (y10)", min_value=0.1, value=def_p, step=1.0)
+            
+        with col_c2:
+            x0_2 = st.number_input("x0_2 (threshold y2/y4)", min_value=0.1, max_value=1000.0, value=max(def_p*1.5, 0.1), step=1.0)
+            constant2 = st.number_input("Constant y2/y4", min_value=100.0, value=def_c, step=100.0)
+            b2 = st.number_input("b2 (bias y2/y4)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            delta2 = st.slider("Delta 2 (δ2)", 0.0, 2.0, 1.0, 0.05)
+            short_shares = st.number_input("Shares Short (y11)", min_value=0, value=100)
+            short_entry = st.number_input("Short Entry (y11)", min_value=0.1, value=max(def_p*1.5, 0.1), step=1.0)
+
+        with col_c3:
+            anchorY6 = st.number_input("Anchor Benchmark", min_value=0.1, value=def_p, step=1.0)
+            refConst = st.number_input("Ref Constant", min_value=100.0, value=def_c, step=100.0)
+            call_contracts = st.number_input("Call Contracts (y8)", min_value=0, value=100)
+            premium_call = st.number_input("Premium Call", min_value=0.0, value=0.0, step=0.1)
+            put_contracts = st.number_input("Put Contracts (y9)", min_value=0, value=100)
+            premium_put = st.number_input("Premium Put", min_value=0.0, value=0.0, step=0.1)
+
+        st.markdown("---")
+        st.caption("Toggle Active Lines")
+        t_col1, t_col2, t_col3, t_col4 = st.columns(4)
+        showY1 = t_col1.checkbox("y1: Shannon 1 (+piecewise)", value=True)
+        showY2 = t_col1.checkbox("y2: Shannon 2 (original)", value=False)
+        showY3 = t_col1.checkbox("y3: Net P/L", value=True)
+        showY4 = t_col2.checkbox("y4: Piecewise y2", value=False)
+        showY5 = t_col2.checkbox("y5: Piecewise y1", value=False)
+        showY6 = t_col2.checkbox("y6: Ref y1", value=True)
+        showY7 = t_col3.checkbox("y7: Ref y2", value=False)
+        showY8 = t_col3.checkbox("y8: Call Intrinsic", value=False)
+        showY9 = t_col3.checkbox("y9: Put Intrinsic", value=False)
+        showY10 = t_col4.checkbox("y10: P/L Long", value=False)
+        showY11 = t_col4.checkbox("y11: P/L Short", value=False)
+        includePremium = t_col4.checkbox("Include Premium in y8/y9", value=True)
+
+    # ---------------- Mathematics Engine ----------------
+    x_min, x_max = max(0.1, def_p * 0.1), def_p * 2.5
+    prices = np.linspace(x_min, x_max, 300)
+
+    ln1 = np.where(prices > 0, np.log(prices / x0_1), 0)
+    ln2_inner = np.where(prices / x0_2 < 2, 2 - (prices / x0_2), 1e-9)
+    ln2 = np.log(ln2_inner)
+
+    y1_raw = constant1 * ln1
+    y2_raw = constant2 * ln2
+
+    y1_d2 = (y1_raw * delta2) + b1
+    y2_d2 = (y2_raw * delta2) + b2
+
+    d_y4 = np.where(prices >= x0_2, delta2, delta1)
+    y4_piece = (y2_raw * d_y4) + b2
+
+    d_y5 = np.where(prices >= x0_1, delta2, delta1)
+    y5_piece = (y1_raw * d_y5) + b1
+
+    ln6 = np.where(prices > 0, np.log(prices / anchorY6), 0)
+    y6_raw = refConst * ln6
+    ln7_inner = np.where(prices / anchorY6 < 2, 2 - (prices / anchorY6), 1e-9)
+    y7_raw = refConst * np.log(ln7_inner)
+
+    y6_ref_d2 = y6_raw * delta2
+    y7_ref_d2 = y7_raw * delta2
+
+    premCallCost = call_contracts * premium_call if includePremium else 0
+    premPutCost = put_contracts * premium_put if includePremium else 0
+    y8_call_intrinsic = (np.maximum(0, prices - x0_1) * call_contracts) - premCallCost
+    y9_put_intrinsic = (np.maximum(0, x0_2 - prices) * put_contracts) - premPutCost
+
+    y10_long_pl = (prices - long_entry) * long_shares
+    y11_short_pl = (short_entry - prices) * short_shares
+
+    components_d2 = []
+    if showY1: components_d2.append(y1_d2)
+    if showY2: components_d2.append(y2_d2)
+    if showY4: components_d2.append(y4_piece)
+    if showY5: components_d2.append(y5_piece)
+    if showY8: components_d2.append(y8_call_intrinsic)
+    if showY9: components_d2.append(y9_put_intrinsic)
+    if showY10: components_d2.append(y10_long_pl)
+    if showY11: components_d2.append(y11_short_pl)
+
+    y3_delta2 = np.sum(components_d2, axis=0) if components_d2 else np.zeros_like(prices)
+    y_overlay_d2 = y3_delta2 - y6_ref_d2
+
+    # ---------------- Plotly Visualization ----------------
+    tabs_chart = st.tabs(["เปรียบเทียบทั้งหมด", "Net เท่านั้น", "Delta_Log_Overlay"])
+
+    with tabs_chart[0]:
+        fig1 = go.Figure()
+        if showY1: fig1.add_trace(go.Scatter(x=prices, y=y1_d2, name=f"y1 (δ={delta2:.2f})", line=dict(color='#22d3ee', width=3)))
+        if showY2: fig1.add_trace(go.Scatter(x=prices, y=y2_d2, name=f"y2 (δ={delta2:.2f})", line=dict(color='#fde047', width=3)))
+        if showY4: fig1.add_trace(go.Scatter(x=prices, y=y4_piece, name="y4 (piecewise δ y2)", line=dict(color='#a3e635', width=3)))
+        if showY5: fig1.add_trace(go.Scatter(x=prices, y=y5_piece, name="y5 (piecewise δ y1)", line=dict(color='#10b981', width=3)))
+        if showY3: fig1.add_trace(go.Scatter(x=prices, y=y3_delta2, name="Net (δ2 base)", line=dict(color='#f472b6', width=3.5)))
+        if showY6: fig1.add_trace(go.Scatter(x=prices, y=y6_ref_d2, name="y6 (Benchmark, δ2)", line=dict(color='#94a3b8', width=2.5, dash='dash')))
+        if showY7: fig1.add_trace(go.Scatter(x=prices, y=y7_ref_d2, name="y7 (Ref y2, δ2)", line=dict(color='#c084fc', width=2.5, dash='dash')))
+        if showY8: fig1.add_trace(go.Scatter(x=prices, y=y8_call_intrinsic, name="y8 (Call)", line=dict(color='#ef4444', width=3)))
+        if showY9: fig1.add_trace(go.Scatter(x=prices, y=y9_put_intrinsic, name="y9 (Put)", line=dict(color='#22c55e', width=3)))
+        if showY10: fig1.add_trace(go.Scatter(x=prices, y=y10_long_pl, name="y10 (Long)", line=dict(color='#60a5fa', width=3)))
+        if showY11: fig1.add_trace(go.Scatter(x=prices, y=y11_short_pl, name="y11 (Short)", line=dict(color='#fb923c', width=3)))
         
-        st.markdown("**Stock Replacement (Piecewise $\\delta$)**")
-        delta_1 = st.slider("Downside $\\delta_1$ (Price < P0)", 0.0, 1.0, 0.2, 0.1, key="chain_d1_payoff")
+        fig1.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+        fig1.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8, annotation_text="t (current)")
+        fig1.update_layout(title="Full Custom Comparison Model", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=600)
+        st.plotly_chart(fig1, use_container_width=True)
 
-    with col2:
-        hedge_ratio = st.slider("Hedge Ratio (contracts/fix_c unit)", 0.1, 3.0, 2.0, 0.1, key="chain_hr_payoff")
-        
-        # User can select the put strike price
-        put_strike = st.number_input("Put Strike Price ($)", min_value=0.1, value=float(P0 * 0.9), step=1.0, key="chain_put_strike_payoff")
-        put_strike_pct = put_strike / P0 if P0 > 0 else 0.9
+    with tabs_chart[1]:
+        fig2 = go.Figure()
+        if showY3: fig2.add_trace(go.Scatter(x=prices, y=y3_delta2, name="Net (δ2 base)", line=dict(color='#f472b6', width=3.5)))
+        if showY6: fig2.add_trace(go.Scatter(x=prices, y=y6_ref_d2, name="y6 (Benchmark, δ2)", line=dict(color='#94a3b8', width=3, dash='dash')))
+        fig2.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+        fig2.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8)
+        fig2.update_layout(title="Net (y3) vs Benchmark", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=500)
+        st.plotly_chart(fig2, use_container_width=True)
 
-        qty_puts = (fix_c / P0) * hedge_ratio
-        
-        st.markdown("**Shielded (+Puts) Upside $\\delta$**")
-        delta_2 = st.slider("Upside $\\delta_2$ (Price >= P0)", 0.5, 2.0, 1.0, 0.1, key="chain_d2_payoff")
-        
-        crash_price_pct = st.slider("Simulate Crash Price (%)", 10, 100, 50, 5, key="chain_crash_pct")
-        P_crash = P0 * (crash_price_pct / 100.0)
-        st.metric("Crash Price Scenario", f"${P_crash:.1f}")
+    with tabs_chart[2]:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Scatter(x=prices, y=y_overlay_d2, name="Delta Log Overlay (Net - Benchmark)", line=dict(color='#ea580c', width=3.5)))
+        fig3.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+        fig3.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8)
+        fig3.update_layout(title="Delta Log Overlay", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=500)
+        st.plotly_chart(fig3, use_container_width=True)
 
-    r = 0.04
-    T = 1.0
-    put_premium = black_scholes(P0, put_strike, T, r, sigma, 'put')
-    cost_hedge = qty_puts * put_premium
-    harvest_profit = fix_c * 0.5 * (sigma ** 2) * T
-    surplus = harvest_profit - cost_hedge
-
-    prices = np.linspace(P0 * 0.2, P0 * 1.5, 200)
-    
-    # Line 1: Buy & Hold (Unhedged Baseline) - Assume 1x leverage on fix_c
-    buy_and_hold = fix_c * (prices / P0 - 1)
-    
-    # Line 2: Shannon Baseline (Rebalanced) -> fix_c * ln(Pt/P0)
-    shannon_baseline = fix_c * np.log(prices / P0)
-    
-    # Line 3: Dynamic (+Vol) -> Shannon Baseline + Harvest
-    dynamic_shield = shannon_baseline + harvest_profit
-    
-    # Line 4: Shielded (+Puts) -> Shannon + Vol (Harvest) + Put Payoff - Cost
-    # Upside \delta_2 applied when prices >= P0
-    put_piecewise_delta = np.where(prices >= P0, delta_2, 1.0)
-    shannon_put_base = fix_c * np.log(prices / P0) * put_piecewise_delta
-    put_val = qty_puts * np.maximum(0, put_strike - prices)
-    shielded = shannon_put_base + harvest_profit + put_val - cost_hedge
-    
-    # Line 5: Stock Replacement (LEAPS+Liq) -> Downside Delta_1 + Vol (Harvest)
-    # Upside returns to baseline 1.0
-    sr_piecewise_delta = np.where(prices >= P0, 1.0, delta_1)
-    stock_replacement = (fix_c * np.log(prices / P0) * sr_piecewise_delta) + harvest_profit
-
-    fig_payoff = go.Figure()
-    fig_payoff.add_trace(go.Scatter(x=prices, y=buy_and_hold, name="Buy & Hold (1x)",
-        line=dict(width=2, color='gray', dash='dot')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=shannon_baseline, name="Shannon Baseline",
-        line=dict(width=2, color='#ff9800')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=dynamic_shield, name="Dynamic (+Vol)",
-        line=dict(width=2, color='#2196f3', dash='dash')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=shielded, name="Shielded (+Puts)",
-        line=dict(width=3, color='#00c853')))
-    fig_payoff.add_trace(go.Scatter(x=prices, y=stock_replacement, name="Stock Replacement (LEAPS+Liq)",
-        line=dict(width=3, color='#9c27b0')))
-    
-    fig_payoff.add_vline(x=P_crash, line_dash="dash", line_color="red",
-                         annotation_text=f"Crash {P_crash:.1f}")
-    fig_payoff.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
-    fig_payoff.update_layout(
-        title="Payoff Profile (4-Line Model)",
-        xaxis_title="Price ($)", yaxis_title="P&L ($)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-        height=500,
-    )
-    st.plotly_chart(fig_payoff, use_container_width=True)
-
-    st.divider()
-
-    st.subheader("💧 Capital Flow (Sankey)")
-    
-    put_payoff_crash = max(0, put_strike - P_crash)
-    total_put_payoff = qty_puts * put_payoff_crash
-    
-    new_strike_crash = P_crash * put_strike_pct
-    rolldown_premium = black_scholes(P_crash, new_strike_crash, T, r, sigma, 'put')
-    rolldown_cost = qty_puts * rolldown_premium
-    
-    deploy_ratio = 0.7
-    pool_cf_net = total_put_payoff - rolldown_cost
-    deploy_amount = pool_cf_net * deploy_ratio if pool_cf_net > 0 else 0
-    reserve_amount = pool_cf_net * (1 - deploy_ratio) if pool_cf_net > 0 else 0
-
-    labels = ["Shannon Income", "Harvest (Vol)", "Put Hedge", "Surplus", "Scale Up",
-              "Put Payoff", "Pool CF", "Re-Hedge Cost", "Deploy", "Reserve"]
-    
-    value_harvest = max(1, harvest_profit)
-    value_hedge = max(0.01, cost_hedge)
-    value_surplus = max(0.01, surplus) if surplus > 0 else 0.01
-    value_put = max(1, total_put_payoff)
-    value_rolldown = max(0.01, rolldown_cost)
-    value_deploy = max(0.01, deploy_amount)
-    value_reserve = max(0.01, reserve_amount)
-
-    sources = [1, 1, 3, 5, 6, 6, 6]
-    targets = [2, 3, 4, 6, 7, 8, 9]
-    values = [value_hedge, value_surplus, value_surplus,
-              value_put, min(value_put, value_rolldown), value_deploy, value_reserve]
-
-    fig_sankey = go.Figure(data=[go.Sankey(
-        node=dict(
-            pad=15, thickness=20, line=dict(color="black", width=0.5),
-            label=labels, color=["purple", "green", "red", "blue", "gold",
-                                 "red", "orange", "brown", "gold", "gray"]
-        ),
-        link=dict(source=sources, target=targets, value=values)
-    )])
-    fig_sankey.update_layout(title="Full Cycle Flow", height=400)
-    st.plotly_chart(fig_sankey, use_container_width=True)
-
-
-# ----------------------------------------------------------
-# TAB: Manage Data
-# ----------------------------------------------------------
 def _render_manage_data(data):
     st.subheader("จัดการข้อมูลพอร์ต")
-    
-    # Add new Ticker
     with st.expander("➕ เพิ่ม Ticker ใหม่", expanded=False):
         with st.form("add_ticker_form"):
             new_ticker = st.text_input("Ticker Symbol").upper()
             init_price = st.number_input("Initial Price (t)", min_value=0.01, value=100.0)
             init_c = st.number_input("Initial Fix_C ($)", min_value=1000.0, value=10000.0)
-            
             if st.form_submit_button("Add Ticker"):
                 if new_ticker and init_price > 0 and init_c > 0:
-                    # Check if exists
                     existing = [d["ticker"] for d in get_tickers(data)]
-                    if new_ticker in existing:
-                        st.error("Ticker มีอยู่แล้ว")
-                    else:
+                    if new_ticker not in existing:
                         new_entry = {
-                            "ticker": new_ticker,
-                            "Final": f"{init_price}, {init_c}, 0.0",
-                            "current_state": {
-                                "price": init_price,
-                                "fix_c": init_c,
-                                "baseline": init_price,
-                                "cumulative_ev": 0.0
-                            },
-                            "rounds": [],
-                            "beta_momory": "0.0, 0.0, 0.0"
+                            "ticker": new_ticker, "Final": f"{init_price}, {init_c}, 0.0",
+                            "current_state": {"price": init_price, "fix_c": init_c, "baseline": init_price, "cumulative_ev": 0.0},
+                            "rounds": [], "beta_momory": "0.0, 0.0, 0.0"
                         }
-                        if "tickers" not in data:
-                             data["tickers"] = []
+                        if "tickers" not in data: data["tickers"] = []
                         data["tickers"].append(new_entry)
                         save_trading_data(data)
                         st.success(f"Added {new_ticker}")
                         st.rerun()
 
-    # Clear Data
-    with st.expander("⚠️ ลบข้อมูลทั้งหมด (Reset)", expanded=False):
+    with st.expander("⚠️ ลบข้อมูลทั้งหมด", expanded=False):
         if st.button("DELETE ALL DATA", type="primary"):
-            data["tickers"] = []
-            data["global_pool_cf"] = 0.0
-            data["global_ev_reserve"] = 0.0
-            data["treasury_history"] = []
+            data.update({"tickers": [], "global_pool_cf": 0.0, "global_ev_reserve": 0.0, "treasury_history": []})
             save_trading_data(data)
             st.warning("All data cleared!")
             st.rerun()
 
 def main():
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("เลือกบทเรียน:", 
-        [
-            "บทนำ: Flywheel 0 (Dragon Portfolio)",
-            "บทที่ 1: The Baseline",
-            "บทที่ 2: Volatility Harvest",
-            "บทที่ 3: Convexity Engine",
-            "บทที่ 4: The Black Swan Shield",
-            "บทที่ 5: Dynamic Scaling",
-            "บทที่ 6: Synthetic Dividend",
-            "บทที่ 7: Collateral Magic",
-            "บทที่ 8: Chain System (ลูกโซ่)",
-            "📝 แบบทดสอบ (Quiz)",
-            "🛠️ Workshop: จัดพอร์ตจริง",
-            "📚 อภิธานศัพท์ (Glossary)"
-        ]
-    )
-
+    page = st.sidebar.radio("เลือกบทเรียน:", [
+        "บทนำ: Flywheel 0 (Dragon Portfolio)", "บทที่ 1: The Baseline", "บทที่ 2: Volatility Harvest",
+        "บทที่ 3: Convexity Engine", "บทที่ 4: The Black Swan Shield", "บทที่ 5: Dynamic Scaling",
+        "บทที่ 6: Synthetic Dividend", "บทที่ 7: Collateral Magic", "บทที่ 8: Chain System (ลูกโซ่)",
+        "📝 แบบทดสอบ (Quiz)", "🛠️ Workshop: จัดพอร์ตจริง", "📚 อภิธานศัพท์ (Glossary)"
+    ])
     st.sidebar.markdown("---")
     st.sidebar.info("Application to demonstrate the concepts of Shannon's Demon strategy.")
 
-    # Page Routing
-    if page == "บทนำ: Flywheel 0 (Dragon Portfolio)":
-        chapter_0_introduction()
-    elif page == "บทที่ 1: The Baseline":
-        chapter_1_baseline()
-    elif page == "บทที่ 2: Volatility Harvest":
-        chapter_2_volatility_harvest()
-    elif page == "บทที่ 3: Convexity Engine":
-        chapter_3_convexity_engine()
-    elif page == "บทที่ 4: The Black Swan Shield":
-        chapter_4_black_swan_shield()
-    elif page == "บทที่ 5: Dynamic Scaling":
-        chapter_5_dynamic_scaling()
-    elif page == "บทที่ 6: Synthetic Dividend":
-        chapter_6_synthetic_dividend()
-    elif page == "บทที่ 7: Collateral Magic":
-        chapter_7_collateral_magic()
-    elif page == "บทที่ 8: Chain System (ลูกโซ่)":
-        chapter_chain_system()
-    elif page == "📝 แบบทดสอบ (Quiz)":
-        master_study_guide_quiz()
-    elif page == "🛠️ Workshop: จัดพอร์ตจริง":
-        paper_trading_workshop()
-    elif page == "📚 อภิธานศัพท์ (Glossary)":
-        glossary_section()
+    if page == "บทนำ: Flywheel 0 (Dragon Portfolio)": chapter_0_introduction()
+    elif page == "บทที่ 1: The Baseline": chapter_1_baseline()
+    elif page == "บทที่ 2: Volatility Harvest": chapter_2_volatility_harvest()
+    elif page == "บทที่ 3: Convexity Engine": chapter_3_convexity_engine()
+    elif page == "บทที่ 4: The Black Swan Shield": chapter_4_black_swan_shield()
+    elif page == "บทที่ 5: Dynamic Scaling": chapter_5_dynamic_scaling()
+    elif page == "บทที่ 6: Synthetic Dividend": chapter_6_synthetic_dividend()
+    elif page == "บทที่ 7: Collateral Magic": chapter_7_collateral_magic()
+    elif page == "บทที่ 8: Chain System (ลูกโซ่)": chapter_chain_system()
+    elif page == "📝 แบบทดสอบ (Quiz)": master_study_guide_quiz()
+    elif page == "🛠️ Workshop: จัดพอร์ตจริง": paper_trading_workshop()
+    elif page == "📚 อภิธานศัพท์ (Glossary)": glossary_section()
 
 if __name__ == "__main__":
     main()
