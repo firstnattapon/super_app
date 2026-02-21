@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import json
 from datetime import datetime
 
 st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
@@ -657,7 +658,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         s_options = y8_call_intrinsic[idx] + y9_put_intrinsic[idx]
         s_net = y3_delta2[idx]
         
-        _render_sankey_flow(s_shannon, s_harvest, s_options, s_net, inspect_p)
+        _render_sankey_flow(s_shannon, harvest=s_harvest, options=s_options, net=s_net, price=inspect_p)
 
 def _render_sankey_flow(shannon: float, harvest: float, options: float, net: float, price: float):
     # Balanced Sankey Logic: Sum(In) = Sum(Out)
@@ -745,6 +746,33 @@ def _render_manage_data(data: dict):
                         st.rerun()
                     else:
                         st.error("Ticker นี้มีอยู่แล้วในพอร์ต")
+
+    with st.expander("💾 Export / Import Data", expanded=False):
+        st.markdown("##### 📤 Export Data (ดาวน์โหลดข้อมูล)")
+        export_str = json.dumps(data, indent=2, ensure_ascii=False)
+        st.download_button(
+            label="💾 Download Data as JSON",
+            data=export_str,
+            file_name=f"chain_system_backup_{datetime.now().strftime('%Y-%m-%d')}.json",
+            mime="application/json"
+        )
+        
+        st.divider()
+        st.markdown("##### 📥 Import Data (นำเข้าข้อมูล)")
+        uploaded_file = st.file_uploader("อัปโหลดไฟล์ JSON ที่ได้จากการ Export", type=["json"])
+        if uploaded_file is not None:
+            try:
+                uploaded_data = json.load(uploaded_file)
+                if isinstance(uploaded_data, dict) and "tickers" in uploaded_data:
+                    st.warning("⚠️ การ Import จะเป็นการ **เขียนทับข้อมูลปัจจุบัน** ทั้งหมด คุณแน่ใจหรือไม่?")
+                    if st.button("✅ Confirm Import", type="primary"):
+                        save_trading_data(uploaded_data)
+                        st.success("นำเข้าข้อมูลสำเร็จ! ระบบกำลังรีโหลด...")
+                        st.rerun()
+                else:
+                    st.error("❌ ไฟล์ JSON ไม่ถูกต้อง หรือไม่มีโครงสร้างข้อมูลของระบบ Chain (ขาดคีย์ 'tickers')")
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
 
     with st.expander("⚠️ ลบข้อมูลทั้งหมด", expanded=False):
         if st.button("DELETE ALL DATA", type="primary"):
