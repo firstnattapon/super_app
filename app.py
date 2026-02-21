@@ -220,11 +220,10 @@ def _chip_label(t_data: dict) -> str:
 
 # ── TOP METRICS BAR: Left = Global, Right = Per-Ticker ────────────────
 def _fmt(v: float) -> str:
-    """Full number format with comma separators.
-    Shows full value: -$13,500.00 instead of -$13.5K
+    """Integer format without symbols or commas.
+    Shows full value: -13500 instead of -$13,500.00
     """
-    sign = "-" if v < 0 else ""
-    return f"{sign}${abs(v):,.2f}"
+    return f"{int(round(v))}"
 
 
 def _render_engine_metrics(data: dict, tickers_list: list,
