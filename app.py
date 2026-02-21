@@ -219,6 +219,20 @@ def _chip_label(t_data: dict) -> str:
 
 
 # ── TOP METRICS BAR: Left = Global, Right = Per-Ticker ────────────────
+def _fmt(v: float) -> str:
+    """Compact number format that always fits in a narrow st.metric column.
+    ≥ 1M  → $1.2M   |   ≥ 1K → $10.3K   |   < 1K → $25.20
+    Negatives: -$13.5K etc.
+    """
+    av = abs(v)
+    sign = "-" if v < 0 else ""
+    if av >= 1_000_000:
+        return f"{sign}${av/1_000_000:.1f}M"
+    if av >= 1_000:
+        return f"{sign}${av/1_000:.1f}K"
+    return f"${v:,.2f}"
+
+
 def _render_engine_metrics(data: dict, tickers_list: list,
                             active_ticker: str, active_t_data: dict):
     pool_cf      = data.get("global_pool_cf", 0.0)
@@ -230,16 +244,15 @@ def _render_engine_metrics(data: dict, tickers_list: list,
     sel_rounds = len(active_t_data.get("rounds", [])) if active_t_data else 0
 
     with st.container(border=True):
-        # Single row: left half = global, divider, right half = ticker stats
         col_global, col_div, col_ticker = st.columns([4, 0.1, 5])
 
         with col_global:
             st.caption("🌐 Global")
             g1, g2, g3, g4 = st.columns(4)
-            g1.metric("🎱 Pool CF",    f"${pool_cf:,.2f}")
-            g2.metric("🛡️ EV LEAPS",  f"${ev_reserve:,.2f}")
-            g3.metric("Tickers",       str(len(tickers_list)))
-            g4.metric("Total Rounds",  str(total_rounds))
+            g1.metric("🎱 Pool CF",   _fmt(pool_cf))
+            g2.metric("🛡️ EV LEAPS", _fmt(ev_reserve))
+            g3.metric("Tickers",      str(len(tickers_list)))
+            g4.metric("Total Rounds", str(total_rounds))
 
         with col_div:
             st.markdown(
@@ -251,14 +264,14 @@ def _render_engine_metrics(data: dict, tickers_list: list,
             if active_t_data:
                 st.caption(f"📌 {active_ticker}")
                 t1, t2, t3, t4, t5, t6 = st.columns(6)
-                t1.metric("Price",    f"${state.get('price', 0):,.2f}")
-                t2.metric("fix_c",    f"${state.get('fix_c', 0):,.0f}")
-                t3.metric("Baseline", f"${state.get('baseline', 0):,.2f}")
-                t4.metric("Ev Burn 🔥", f"${state.get('cumulative_ev', 0):,.2f}",
+                t1.metric("Price",      _fmt(float(state.get("price", 0))))
+                t2.metric("fix_c",      _fmt(float(state.get("fix_c", 0))))
+                t3.metric("Baseline",   _fmt(float(state.get("baseline", 0))))
+                t4.metric("Ev Burn 🔥", _fmt(float(state.get("cumulative_ev", 0))),
                           delta_color="inverse")
-                t5.metric("Net P&L",  f"${sel_net:,.2f}",
+                t5.metric("Net P&L",    _fmt(sel_net),
                           delta_color="normal" if sel_net >= 0 else "inverse")
-                t6.metric("Rounds",   str(sel_rounds))
+                t6.metric("Rounds",     str(sel_rounds))
             else:
                 st.caption("📌 ยังไม่มี Ticker")
 
@@ -1160,5 +1173,3 @@ def _render_manage_data(data: dict):
 
 if __name__ == "__main__":
     main()
-
-
