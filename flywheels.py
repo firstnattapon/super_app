@@ -115,7 +115,7 @@ def _migrate_data_if_needed(raw_data: Union[Dict, List]) -> Dict[str, Any]:
 # CHAIN ENGINE — Core Round Logic
 # ============================================================
 
-def run_chain_round(ticker_state: Dict[str, float], p_new: float, sigma: float, hedge_ratio: float, r: float = 0.04, T: float = 1.0) -> Optional[Dict[str, Any]]:
+def run_chain_round(ticker_state: Dict[str, float], p_new: float, hedge_ratio: float, r: float = 0.04, T: float = 1.0) -> Optional[Dict[str, Any]]:
     """Core engine: compute one chain round.
     Returns a round_data dict (not yet committed)."""
     try:
@@ -130,25 +130,24 @@ def run_chain_round(ticker_state: Dict[str, float], p_new: float, sigma: float, 
 
     # 1. Shannon Profit
     shannon = c * np.log(p_new / t)
-    # 2. Harvest Profit (Volatility Premium)
-    harvest = c * 0.5 * (sigma ** 2) * T
-    total_income = shannon + harvest
+    total_income = shannon
     
-    # 3. Hedge Cost (Full Upfront Put)
+    # 2. Hedge Cost (Full Upfront Put)
     qty = (c / t) * hedge_ratio
     strike = t * 0.9
+    sigma = 0.5  # Fixed hidden value for hedge cost
     premium = black_scholes(t, strike, T, r, sigma, 'put')
     hedge_cost = qty * premium
     
-    # 4. Surplus
+    # 3. Surplus
     surplus = total_income - hedge_cost
     scale_up = max(0.0, surplus)
     
-    # 5. New State
+    # 4. New State
     c_new = c + scale_up
     t_new = p_new  # re-center
     
-    # 6. Rollover (b stays continuous)
+    # 5. Rollover (b stays continuous)
     # Since t_new = p_new, ln(p_new/t_new) = 0
     if t_new != p_new:
         rollover_delta = c * np.log(p_new / t) - c_new * np.log(p_new / t_new)
@@ -165,14 +164,12 @@ def run_chain_round(ticker_state: Dict[str, float], p_new: float, sigma: float, 
         "c_before": round(c, 2),
         "c_after": round(c_new, 2),
         "shannon_profit": round(shannon, 2),
-        "harvest_profit": round(harvest, 2),
         "hedge_cost": round(hedge_cost, 2),
         "surplus": round(surplus, 2),
         "scale_up": round(scale_up, 2),
         "b_before": round(b, 2),
         "b_after": round(b_new, 2),
         "hedge_ratio": hedge_ratio,
-        "sigma": sigma,
     }
 
 
