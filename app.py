@@ -580,7 +580,8 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
     includePremium = req["includePremium"]
 
     # Mathematics Engine (numpy optimized)
-    x_min, x_max = max(0.1, def_p * 0.1), def_p * 2.5
+    x_min = float(max(0.01, def_p * 0.1))
+    x_max = float(max(x_min + 0.1, def_p * 2.5))
     prices = np.linspace(x_min, x_max, 300)
 
     y1_raw = constant1 * np.where(prices > 0, np.log(prices / x0_1), 0)
@@ -666,12 +667,11 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         st.caption("จำลองการไหลของเงินทุน ณ ระดับราคาที่เลือก (Visualizing Capital Distribution)")
         
         # Internal price selector for Sankey
+        safe_inspect_val = float(min(x_max, max(x_min, def_p)))
         inspect_p = st.slider("เลื่อนเพื่อดู Flow ณ ราคา P", 
                              min_value=float(x_min), 
                              max_value=float(x_max), 
-                             value=float(def_p), 
-                             step=0.5,
-                             format="$%.1f")
+                             value=safe_inspect_val)
         
         # Calculate single-point values for Sankey
         idx = (np.abs(prices - inspect_p)).argmin()
