@@ -725,7 +725,15 @@ def _render_treasury_log(data: dict, filter_ticker: str = ""):
 
     st.caption(f"แสดง {len(tbl)} รายการ" +
                (f"  (filter: {sel})" if sel != "🌐 ทั้งหมด" else ""))
-    st.dataframe(pd.DataFrame(tbl)[::-1], use_container_width=True, hide_index=True)
+               
+    # --- Modification applied here ---
+    df = pd.DataFrame(tbl)[::-1]
+    
+    if sel != "🌐 ทั้งหมด":
+        df = df.drop(columns=["Pool CF", "EV Res"], errors="ignore")
+        
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    # ---------------------------------
 
 def _render_consolidated_history(t_data: dict):
     st.subheader(f"📜 {t_data.get('ticker','???')} — History")
