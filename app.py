@@ -585,7 +585,7 @@ def _render_payoff_profile_tab(data: dict):
         st.info(f"🟢 **Current State:** กราฟตั้งต้นจากข้อมูลปัจจุบันของ `{t_data.get('ticker')}` | Price: ${def_p:,.2f} | fix_c: ${def_c:,.0f}")
 
     controls = _render_payoff_controls(def_p, def_c)
-    _calculate_and_plot_payoff(def_p, def_c, controls)
+    _calculate_and_plot_payoff(def_p, def_c, controls, data)
 
 def _render_payoff_controls(def_p: float, def_c: float) -> dict:
     # Ensure def_p and def_c are within safe bounds for Streamlit UI
@@ -656,7 +656,7 @@ def _render_payoff_controls(def_p: float, def_c: float) -> dict:
         
     return controls
 
-def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
+def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict = None):
     # Retrieve control values
     x0_1, constant1, b1, delta1 = req["x0_1"], req["constant1"], req["b1"], req["delta1"]
     x0_2, constant2, b2, delta2 = req["x0_2"], req["constant2"], req["b2"], req["delta2"]
@@ -746,77 +746,352 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         st.plotly_chart(fig3, use_container_width=True)
 
     with tabs_chart[3]:
-        st.subheader("🔗 Capital Flow Analysis (Sankey)")
-        st.caption("จำลองการไหลของเงินทุน ณ ระดับราคาที่เลือก (Visualizing Capital Distribution)")
-        
-        # Internal price selector for Sankey
-        safe_inspect_val = float(min(x_max, max(x_min, def_p)))
-        inspect_p = st.slider("เลื่อนเพื่อดู Flow ณ ราคา P", 
-                             min_value=float(x_min), 
-                             max_value=float(x_max), 
-                             value=safe_inspect_val)
-        
-        # Calculate single-point values for Sankey
-        idx = (np.abs(prices - inspect_p)).argmin()
-        s_shannon = y1_d2[idx]
-        s_options = y8_call_intrinsic[idx] + y9_put_intrinsic[idx]
-        s_net = y3_delta2[idx]
-        
-        _render_sankey_flow(s_shannon, s_options, s_net, inspect_p)
+        st.subheader("🔗 Capital Flow Analysis — by Ticker (Sankey)")
+        st.caption("แสดงการไหลของกำไร Shannon → Hedge Cost → Surplus → Scale Up แยกตาม Ticker จริงจากพอร์ต")
+        _render_sankey_by_ticker(data, prices, x_min, x_max, def_p)
 
-def _render_sankey_flow(shannon: float, options: float, net: float, price: float):
-    # Balanced Sankey Logic: Sum(In) = Sum(Out)
-    # Nodes: 0:Shannon, 1:Options, 2:Gross Flow (Engine), 3:Net Surplus, 4:Net Deficit
-    nodes = ["Shannon P/L", "Options P/L", "Total Flow (Engine)", "Net Surplus", "Net Deficit"]
-    
-    sources = []
-    targets = []
-    values = []
-    colors = []
-    
-    # 1. Incoming to Engine (node 2)
-    if shannon > 0:
-        sources.append(0); targets.append(2); values.append(shannon); colors.append("rgba(34, 211, 238, 0.4)")
-    if options > 0:
-        sources.append(1); targets.append(2); values.append(options); colors.append("rgba(34, 197, 94, 0.4)")
-    if net < 0:
-        sources.append(4); targets.append(2); values.append(abs(net)); colors.append("rgba(239, 68, 68, 0.2)")
+def _render_sankey_by_ticker(data: dict, prices: np.ndarray = None, x_min: float = 0, x_max: float = 0, def_p: float = 0):
+    """Render a real-data Sankey diagram showing capital flows by Ticker."""
+    if data is None:
+        st.info("ไม่มีข้อมูลพอร์ต")
+        return
 
-    # 2. Outgoing from Engine (node 2)
-    if shannon < 0:
-        sources.append(2); targets.append(0); values.append(abs(shannon)); colors.append("rgba(148, 163, 184, 0.4)")
-    if options < 0:
-        sources.append(2); targets.append(1); values.append(abs(options)); colors.append("rgba(239, 68, 68, 0.4)")
-    if net > 0:
-        sources.append(2); targets.append(3); values.append(net); colors.append("rgba(244, 114, 182, 0.4)")
+    tickers_list = get_tickers(data)
+    if not tickers_list:
+        st.info("ยังไม่มี Ticker ในพอร์ต — เพิ่มได้ที่แท็บ ➕ Manage Data")
+        return
 
-    # Avoid zero-value Sankey errors
+    # ── Aggregate per-ticker flow stats ──────────────────────────────────────
+    ticker_stats = []
+    for t in tickers_list:
+        name = t.get("ticker", "???")
+        rounds = t.get("rounds", [])
+        state  = t.get("current_state", {})
+
+        total_shannon  = sum(float(r.get("shannon_profit", 0)) for r in rounds)
+        total_hedge    = sum(float(r.get("hedge_cost",    0)) for r in rounds)
+        total_surplus  = sum(float(r.get("surplus",       0)) for r in rounds)
+        total_scale_up = sum(float(r.get("scale_up",      0)) for r in rounds)
+        total_harvest  = sum(float(r.get("harvest_profit",0)) for r in rounds)
+        total_injection= sum(float(r.get("scale_up",0)) for r in rounds
+                             if "Injection" in str(r.get("action","")))
+        cumulative_ev  = float(state.get("cumulative_ev", 0))
+        baseline       = float(state.get("baseline", 0))
+        fix_c          = float(state.get("fix_c", 0))
+
+        if any([total_shannon, total_hedge, total_surplus, total_scale_up,
+                total_harvest, cumulative_ev, baseline, fix_c]):
+            ticker_stats.append({
+                "ticker":     name,
+                "shannon":    total_shannon,
+                "hedge":      total_hedge,
+                "surplus":    total_surplus,
+                "scale_up":   total_scale_up,
+                "harvest":    total_harvest,
+                "injection":  total_injection,
+                "ev":         cumulative_ev,
+                "baseline":   baseline,
+                "fix_c":      fix_c,
+            })
+
+    if not ticker_stats:
+        st.info("ยังไม่มีข้อมูล Round สำหรับสร้าง Sankey — ลอง Run Chain Round ก่อน")
+        # Fallback: show current-state overview only
+        _render_ticker_state_overview(tickers_list, data)
+        return
+
+    # ── Filter selector ──────────────────────────────────────────────────────
+    all_names = [s["ticker"] for s in ticker_stats]
+    st.markdown("##### 🔍 เลือก Ticker ที่ต้องการแสดง")
+    selected_tickers = st.multiselect(
+        "Ticker (ปล่อยว่าง = แสดงทั้งหมด)", all_names,
+        default=[], key="sankey_ticker_filter"
+    )
+    active = [s for s in ticker_stats if s["ticker"] in selected_tickers] if selected_tickers else ticker_stats
+
+    # ── Mode switch ──────────────────────────────────────────────────────────
+    sankey_mode = st.radio(
+        "โหมดการแสดงผล",
+        ["📊 ภาพรวมพอร์ต (Aggregated)", "🎯 รายละเอียดตาม Ticker (Detail by Ticker)"],
+        horizontal=True, key="sankey_mode"
+    )
+
+    if "ภาพรวม" in sankey_mode:
+        _render_sankey_aggregated(active, data)
+    else:
+        _render_sankey_per_ticker_detail(active, data)
+
+    st.divider()
+    _render_ticker_state_overview(tickers_list if not selected_tickers else
+                                  [t for t in tickers_list if t.get("ticker") in [s["ticker"] for s in active]],
+                                  data)
+
+
+def _render_sankey_aggregated(ticker_stats: list, data: dict):
+    """Aggregated Sankey: All tickers feed into shared engine nodes."""
+    pool_cf = data.get("global_pool_cf", 0.0)
+
+    # ── Build node list dynamically ──────────────────────────────────────────
+    # Left:   Ticker nodes
+    # Center: Shannon Engine, Harvest Engine
+    # Right:  Hedge Costs, Net Surplus → Scale Up (fix_c), Pool CF → Deploy
+    # Far-right: cumulative_ev (burn)
+
+    ticker_names = [s["ticker"] for s in ticker_stats]
+    n_tickers    = len(ticker_names)
+
+    SHANNON_ENGINE = n_tickers
+    HARVEST_ENGINE = n_tickers + 1
+    HEDGE_COSTS    = n_tickers + 2
+    NET_SURPLUS    = n_tickers + 3
+    SCALE_UP_NODE  = n_tickers + 4
+    POOL_CF_NODE   = n_tickers + 5
+    EV_BURN_NODE   = n_tickers + 6
+
+    node_labels = ticker_names + [
+        "Shannon Engine", "Harvest Income",
+        "Hedge Costs 🛡️", "Net Surplus",
+        "Scale Up (fix_c) 🚀", f"Pool CF 🎱 ${pool_cf:,.0f}",
+        "Ev Burn 🔥"
+    ]
+
+    TICKER_COLORS = [
+        "#22d3ee","#fbbf24","#34d399","#f472b6","#60a5fa",
+        "#a78bfa","#fb923c","#4ade80","#e879f9","#f87171",
+        "#38bdf8","#facc15","#a3e635","#c084fc","#fb7185","#67e8f9",
+    ]
+    node_colors = [TICKER_COLORS[i % len(TICKER_COLORS)] for i in range(n_tickers)] + [
+        "#94a3b8",  # Shannon Engine
+        "#10b981",  # Harvest
+        "#ef4444",  # Hedge
+        "#f472b6",  # Surplus
+        "#22c55e",  # Scale Up
+        "#3b82f6",  # Pool CF
+        "#dc2626",  # Ev Burn
+    ]
+
+    sources, targets, values, link_colors, link_labels = [], [], [], [], []
+
+    def add_link(src, tgt, val, color, label=""):
+        if val > 0.001:
+            sources.append(src); targets.append(tgt)
+            values.append(round(val, 2)); link_colors.append(color)
+            link_labels.append(label)
+
+    total_shannon  = 0; total_harvest = 0
+    total_hedge    = 0; total_surplus = 0; total_scale_up = 0
+    total_ev       = 0; total_inject  = 0
+
+    for i, s in enumerate(ticker_stats):
+        # Ticker → Shannon Engine
+        if s["shannon"] > 0:
+            add_link(i, SHANNON_ENGINE, s["shannon"],
+                     f"rgba(148,163,184,0.4)", f"{s['ticker']} Shannon")
+            total_shannon += s["shannon"]
+        # Ticker → Harvest Engine
+        if s["harvest"] > 0:
+            add_link(i, HARVEST_ENGINE, s["harvest"],
+                     f"rgba(16,185,129,0.4)", f"{s['ticker']} Harvest")
+            total_harvest += s["harvest"]
+
+        total_hedge    += s["hedge"]
+        total_surplus  += s["surplus"]
+        total_scale_up += s["scale_up"]
+        total_ev       += s["ev"]
+        total_inject   += s["injection"]
+
+    # Shannon Engine → Hedge
+    if total_hedge > 0 and total_shannon > 0:
+        add_link(SHANNON_ENGINE, HEDGE_COSTS,
+                 min(total_hedge, total_shannon),
+                 "rgba(239,68,68,0.4)", "Hedge Premium")
+
+    # Shannon Engine → Net Surplus
+    net_from_shannon = total_shannon - total_hedge
+    if net_from_shannon > 0:
+        add_link(SHANNON_ENGINE, NET_SURPLUS, net_from_shannon,
+                 "rgba(244,114,182,0.4)", "Surplus")
+
+    # Harvest → Pool CF
+    if total_harvest > 0:
+        add_link(HARVEST_ENGINE, POOL_CF_NODE, total_harvest,
+                 "rgba(16,185,129,0.4)", "Harvest → Pool CF")
+
+    # Net Surplus → Scale Up
+    if total_scale_up > 0:
+        add_link(NET_SURPLUS, SCALE_UP_NODE, min(total_scale_up, max(0, net_from_shannon)),
+                 "rgba(34,197,94,0.5)", "Auto Scale Up")
+
+    # Net Surplus → Pool CF (overflow)
+    overflow = net_from_shannon - total_scale_up
+    if overflow > 0:
+        add_link(NET_SURPLUS, POOL_CF_NODE, overflow,
+                 "rgba(59,130,246,0.4)", "Overflow → Pool CF")
+
+    # Pool CF → Scale Up (Injections)
+    if total_inject > 0:
+        add_link(POOL_CF_NODE, SCALE_UP_NODE, total_inject,
+                 "rgba(34,197,94,0.4)", "Pool Injection")
+
+    # Ev Burn cost (conceptual: from Pool CF / Scale Up)
+    if total_ev > 0:
+        add_link(SCALE_UP_NODE, EV_BURN_NODE, min(total_ev, max(0, total_scale_up)),
+                 "rgba(220,38,38,0.35)", "Ev Theta Decay")
+
     if not values:
-        st.info("No flow detected at this price point.")
+        st.info("ยังไม่มี Flow ที่ตรวจจับได้ — กรุณา Run Chain Round ก่อน")
         return
 
     fig = go.Figure(data=[go.Sankey(
-        node = dict(
-          pad = 15,
-          thickness = 20,
-          line = dict(color = "black", width = 0.5),
-          label = nodes,
-          color = ["#22d3ee", "#22c55e", "#94a3b8", "#f472b6", "#ef4444"]
+        arrangement="snap",
+        node=dict(
+            pad=18, thickness=22,
+            line=dict(color="rgba(255,255,255,0.2)", width=0.5),
+            label=node_labels, color=node_colors,
         ),
-        link = dict(
-          source = sources,
-          target = targets,
-          value = values,
-          color = colors
-        ))])
-
-    fig.update_layout(title_text=f"Capital Flow at Price ${price:,.2f}", font_size=12, height=500)
+        link=dict(
+            source=sources, target=targets, value=values,
+            color=link_colors, label=link_labels,
+        )
+    )])
+    fig.update_layout(
+        title_text="📊 Capital Flow — Aggregated Portfolio (All Tickers → Engine → Outcomes)",
+        font=dict(size=12, color="#e2e8f0"),
+        paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+        height=600,
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Shannon", f"${shannon:,.2f}", delta_color="normal" if shannon >= 0 else "inverse")
-    c2.metric("Options Net", f"${options:,.2f}")
-    c3.metric("Net Surplus", f"${net:,.2f}", delta_color="normal" if net >= 0 else "inverse")
+    # Summary metrics
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Shannon Income", f"${total_shannon:,.0f}", delta_color="normal" if total_shannon >= 0 else "inverse")
+    m2.metric("Harvest Income", f"${total_harvest:,.0f}")
+    m3.metric("Hedge Costs 🛡️", f"${total_hedge:,.0f}", delta_color="inverse")
+    m4.metric("Net Surplus", f"${net_from_shannon:,.0f}", delta_color="normal" if net_from_shannon >= 0 else "inverse")
+    m5.metric("Scale Up (fix_c)", f"${total_scale_up:,.0f}")
+    m6.metric("Ev Burn 🔥", f"${total_ev:,.0f}", delta_color="inverse")
+
+
+def _render_sankey_per_ticker_detail(ticker_stats: list, data: dict):
+    """Per-ticker detail Sankey: one mini Sankey per selected ticker."""
+    if len(ticker_stats) > 8:
+        st.warning("⚠️ กรุณาเลือก Ticker ≤ 8 ตัว เพื่อให้กราฟอ่านง่าย")
+        ticker_stats = ticker_stats[:8]
+
+    # Find the ticker in original data to get rounds
+    tickers_list = get_tickers(data)
+    ticker_map   = {t.get("ticker"): t for t in tickers_list}
+
+    n_cols = min(2, len(ticker_stats))
+    cols = st.columns(n_cols)
+
+    TICKER_COLORS_MAP = [
+        "#22d3ee","#fbbf24","#34d399","#f472b6","#60a5fa",
+        "#a78bfa","#fb923c","#4ade80",
+    ]
+
+    for i, s in enumerate(ticker_stats):
+        col = cols[i % n_cols]
+        t_color = TICKER_COLORS_MAP[i % len(TICKER_COLORS_MAP)]
+
+        with col:
+            with st.container(border=True):
+                st.markdown(f"#### {s['ticker']}")
+
+                # Node layout: 0=Ticker, 1=Shannon, 2=Hedge, 3=Surplus, 4=ScaleUp, 5=EvBurn, 6=PoolCF
+                node_labels = [
+                    s["ticker"],
+                    "Shannon", "Hedge 🛡️",
+                    "Surplus", "Scale Up 🚀",
+                    "Ev Burn 🔥", "Pool CF 🎱"
+                ]
+                node_colors = [t_color, "#94a3b8", "#ef4444", "#f472b6", "#22c55e", "#dc2626", "#3b82f6"]
+
+                sources, targets, values, link_colors = [], [], [], []
+
+                def tl(src, tgt, val, color):
+                    if val > 0.001:
+                        sources.append(src); targets.append(tgt)
+                        values.append(round(val, 2)); link_colors.append(color)
+
+                # Ticker → Shannon (income)
+                if s["shannon"] > 0:
+                    tl(0, 1, s["shannon"], f"rgba(148,163,184,0.5)")
+                    # Shannon → Hedge
+                    if s["hedge"] > 0:
+                        tl(1, 2, min(s["hedge"], s["shannon"]), "rgba(239,68,68,0.5)")
+                    # Shannon → Surplus
+                    net_s = s["shannon"] - s["hedge"]
+                    if net_s > 0:
+                        tl(1, 3, net_s, "rgba(244,114,182,0.5)")
+                        # Surplus → Scale Up
+                        if s["scale_up"] > 0:
+                            tl(3, 4, min(s["scale_up"], net_s), "rgba(34,197,94,0.5)")
+                        # Surplus → Pool CF (overflow)
+                        overflow = net_s - s["scale_up"]
+                        if overflow > 0:
+                            tl(3, 6, overflow, "rgba(59,130,246,0.4)")
+
+                # Pool CF → Scale Up (injections)
+                if s["injection"] > 0:
+                    tl(6, 4, s["injection"], "rgba(34,197,94,0.4)")
+
+                # Scale Up → Ev Burn
+                if s["ev"] > 0 and s["fix_c"] > 0:
+                    tl(4, 5, min(s["ev"], s["fix_c"]), "rgba(220,38,38,0.4)")
+
+                if not values:
+                    st.caption("ยังไม่มี Round data")
+                    st.metric("fix_c", f"${s['fix_c']:,.0f}")
+                    st.metric("Ev Burn", f"${s['ev']:,.0f}")
+                    continue
+
+                fig_t = go.Figure(data=[go.Sankey(
+                    node=dict(
+                        pad=12, thickness=18,
+                        line=dict(color="rgba(255,255,255,0.1)", width=0.5),
+                        label=node_labels, color=node_colors,
+                    ),
+                    link=dict(source=sources, target=targets, value=values, color=link_colors)
+                )])
+                fig_t.update_layout(
+                    font=dict(size=10, color="#e2e8f0"),
+                    paper_bgcolor="#1e293b", plot_bgcolor="#1e293b",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    height=350,
+                )
+                st.plotly_chart(fig_t, use_container_width=True)
+
+                # Mini metrics
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Shannon", f"${s['shannon']:,.0f}")
+                mc2.metric("fix_c", f"${s['fix_c']:,.0f}")
+                mc3.metric("Ev Burn", f"${s['ev']:,.0f}", delta_color="inverse")
+
+
+def _render_ticker_state_overview(tickers_list: list, data: dict):
+    """Show a summary table of all tickers' current state."""
+    st.markdown("##### 📋 Current State Overview")
+    rows = []
+    for t in tickers_list:
+        s = t.get("current_state", {})
+        rounds = t.get("rounds", [])
+        total_shannon = sum(float(r.get("shannon_profit", 0)) for r in rounds)
+        total_hedge   = sum(float(r.get("hedge_cost", 0)) for r in rounds)
+        rows.append({
+            "Ticker": t.get("ticker","???"),
+            "Price": f"${s.get('price',0):,.2f}",
+            "fix_c": f"${s.get('fix_c',0):,.0f}",
+            "Baseline": f"${s.get('baseline',0):,.2f}",
+            "Ev Burn": f"${s.get('cumulative_ev',0):,.2f}",
+            "Net P&L": f"${s.get('net_pnl',0):,.2f}",
+            "Σ Shannon": f"${total_shannon:,.2f}",
+            "Σ Hedge": f"${total_hedge:,.2f}",
+            "Rounds": len(rounds),
+        })
+    if rows:
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 # ----------------------------------------------------------
