@@ -10,7 +10,7 @@ st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
     run_chain_round, commit_round,
-    parse_beta_net, build_portfolio_df, get_rollover_history
+    build_portfolio_df
 )
 
 # ============================================================
@@ -131,7 +131,7 @@ def _render_ticker_cards(tickers_list: list):
             ticker = t_data.get("ticker", "???")
             state = t_data.get("current_state", {})
             n_rounds = len(t_data.get("rounds", []))
-            net_val = parse_beta_net(t_data.get("beta_momory", ""))
+            net_val = state.get("net_pnl", 0.0)
             
             with col:
                 with st.container(border=True):
@@ -458,8 +458,7 @@ def _render_consolidated_history(t_data: dict):
         df = pd.DataFrame(tbl)[::-1]
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        legacy_hist = get_rollover_history(t_data)
-        if legacy_hist: st.dataframe(pd.DataFrame(legacy_hist))
+        st.info("No history recorded yet.")
 
 
 # ----------------------------------------------------------
