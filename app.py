@@ -281,22 +281,31 @@ def _render_run_chain_round_section(data: dict, selected: str, t_data: dict, idx
             st.rerun()
 
 def _render_pool_cf_section(data: dict):
-    st.subheader("🎱 Pool CF & Allocation")
-    with st.form("add_pool_cf_form", clear_on_submit=True):
-        c1, c2 = st.columns([2, 1])
-        with c1: 
-            amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0)
-        with c2: 
-            st.write("")
-            st.write("")
-            btn_add = st.form_submit_button("💰 Add Fund", type="primary")
-            
-        if btn_add and amount > 0:
-            data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
-            log_treasury_event(data, "Funding", amount, "Added to Pool CF")
-            save_trading_data(data)
-            st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
-            st.rerun()
+    with st.expander('🎱 Pool CF & Allocation', expanded=False):
+        ticker_names = [t.get("ticker", "???") for t in get_tickers(data)]
+        note_options = ["None"] + ticker_names
+        
+        with st.form("add_pool_cf_form", clear_on_submit=True):
+            c1, c2 = st.columns([2, 1])
+            with c1: 
+                amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0)
+                selected_ticker = st.selectbox("Note (Select Ticker)", options=note_options)
+            with c2: 
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                btn_add = st.form_submit_button("💰 Add Fund", type="primary")
+                
+            if btn_add and amount > 0:
+                data["global_pool_cf"] = data.get("global_pool_cf", 0) + amount
+                note_str = "Added to Pool CF"
+                if selected_ticker and selected_ticker != "None":
+                    note_str += f" [Ticker: {selected_ticker}]"
+                log_treasury_event(data, "Funding", amount, note_str)
+                save_trading_data(data)
+                st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
+                st.rerun()
 
 def _render_deployment_section(data: dict, tickers_list: list):
     if not tickers_list:
@@ -396,13 +405,22 @@ def _render_ev_leaps_section(data: dict):
         
         st.divider()
         st.markdown("##### 📤 Pay LEAPS (Expense/Adjustment)")
+        ticker_names = [t.get("ticker", "???") for t in get_tickers(data)]
+        note_options = ["None"] + ticker_names
+        
         col_c, col_d = st.columns(2)
         with col_c: 
             pay_leaps_amt = st.number_input("LEAPS Net Flow ($)", value=0.0, step=100.0, help="Negative (-) = Expense/Cost.")
+            selected_leaps_ticker = st.selectbox("Note (Select Ticker)", options=note_options, key="leaps_note_ticker")
         with col_d:
+            st.write("")
+            st.write("")
             if st.button("💾 Record Flow"):
                 data["global_ev_reserve"] = data.get("global_ev_reserve", 0.0) + pay_leaps_amt
-                log_treasury_event(data, "Income" if pay_leaps_amt >= 0 else "Expense", pay_leaps_amt, "Manual Adjustment")
+                note_str = "Manual Adjustment"
+                if selected_leaps_ticker and selected_leaps_ticker != "None":
+                    note_str += f" [Ticker: {selected_leaps_ticker}]"
+                log_treasury_event(data, "Income" if pay_leaps_amt >= 0 else "Expense", pay_leaps_amt, note_str)
                 save_trading_data(data)
                 st.success("Recorded Extrinsic Value adjustment")
                 st.rerun()
@@ -658,7 +676,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         s_options = y8_call_intrinsic[idx] + y9_put_intrinsic[idx]
         s_net = y3_delta2[idx]
         
-        _render_sankey_flow(s_shannon, harvest=s_harvest, options=s_options, net=s_net, price=inspect_p)
+        _render_sankey_flow(s_shannon, s_harvest, s_options, s_net, inspect_p)
 
 def _render_sankey_flow(shannon: float, harvest: float, options: float, net: float, price: float):
     # Balanced Sankey Logic: Sum(In) = Sum(Out)
