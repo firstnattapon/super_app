@@ -115,7 +115,7 @@ def _migrate_data_if_needed(raw_data: Union[Dict, List]) -> Dict[str, Any]:
 # CHAIN ENGINE — Core Round Logic
 # ============================================================
 
-def run_chain_round(ticker_state: Dict[str, float], p_new: float, hedge_ratio: float, r: float = 0.04, T: float = 1.0) -> Optional[Dict[str, Any]]:
+def run_chain_round(ticker_state: Dict[str, float], p_new: float, hedge_ratio: float, r: float = 0.04, T: float = 1.0, ignore_hedge: bool = False, ignore_surplus: bool = False) -> Optional[Dict[str, Any]]:
     """Core engine: compute one chain round.
     Returns a round_data dict (not yet committed)."""
     try:
@@ -133,15 +133,18 @@ def run_chain_round(ticker_state: Dict[str, float], p_new: float, hedge_ratio: f
     total_income = shannon
     
     # 2. Hedge Cost (Full Upfront Put)
-    qty = (c / t) * hedge_ratio
-    strike = t * 0.9
-    sigma = 0.5  # Fixed hidden value for hedge cost
-    premium = black_scholes(t, strike, T, r, sigma, 'put')
-    hedge_cost = qty * premium
+    if ignore_hedge:
+        hedge_cost = 0.0
+    else:
+        qty = (c / t) * hedge_ratio
+        strike = t * 0.9
+        sigma = 0.5  # Fixed hidden value for hedge cost
+        premium = black_scholes(t, strike, T, r, sigma, 'put')
+        hedge_cost = qty * premium
     
     # 3. Surplus
     surplus = total_income - hedge_cost
-    scale_up = max(0.0, surplus)
+    scale_up = 0.0 if ignore_surplus else max(0.0, surplus)
     
     # 4. New State
     c_new = c + scale_up
