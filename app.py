@@ -196,7 +196,7 @@ def _render_engine_tab(data: dict):
         return
 
     # ── 3-Zone Horizontal Split ─────────────────────────────────────────
-    z_left, z_center, z_right = st.columns([2, 4.5, 3], gap="medium")
+    z_left, z_center, z_right = st.columns([1, 2, 2], gap="medium")
 
     with z_left:
         _render_ticker_watchlist(tickers_list, active_idx)
