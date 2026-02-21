@@ -225,22 +225,19 @@ def _render_ticker_selection(tickers_list: list):
 def _render_run_chain_round_section(data: dict, selected: str, t_data: dict, idx: int):
     state = t_data.get("current_state", {})
     settings = data.get("settings", {})
-    default_sigma = settings.get("default_sigma", 0.5)
     default_hr = settings.get("default_hedge_ratio", 2.0)
 
     with st.form("run_round_form", clear_on_submit=False):
-        r1, r2, r3 = st.columns(3)
+        r1, r2 = st.columns(2)
         with r1: 
             p_new = st.number_input(f"ราคาใหม่ P", min_value=0.01, value=float(max(0.01, round(state.get("price", 10.0) * 1.1, 2))), step=1.0)
         with r2: 
-            sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05)
-        with r3: 
             hedge_ratio = st.number_input("Hedge Ratio (x Put)", min_value=0.0, value=default_hr, step=0.5)
             
         preview_btn = st.form_submit_button("🔍 Preview Calculation")
 
     if preview_btn and p_new > 0:
-        preview = run_chain_round(state, p_new, sigma, hedge_ratio)
+        preview = run_chain_round(state, p_new, hedge_ratio)
         if preview:
             st.session_state["_pending_round"] = preview
             st.session_state["_pending_ticker_idx"] = idx
@@ -251,28 +248,24 @@ def _render_run_chain_round_section(data: dict, selected: str, t_data: dict, idx
         st.markdown("---")
         st.info("💡 **Connected Simulator:** คุณสามารถเปิดแท็บ **Payoff Profile** ด้านบน เพื่อดูกราฟล่วงหน้าอิงจากค่า Preview นี้ได้ทันที")
         
-        p1, p2, p3, p4 = st.columns(4)
+        p1, p3, p4 = st.columns(3)
         new_shannon = p1.number_input("Shannon Profit", value=float(rd['shannon_profit']), step=10.0, format="%.2f")
-        new_harvest = p2.number_input("Harvest Profit", value=float(rd['harvest_profit']), step=10.0, format="%.2f")
         new_hedge = p3.number_input("Hedge Cost", value=float(rd['hedge_cost']), step=10.0, format="%.2f")
         new_surplus = p4.number_input("Surplus (Free Risk)", value=float(rd['surplus']), step=10.0, format="%.2f")
 
-        p5, p6, p7, p8 = st.columns(4)
+        p5, p6, p7 = st.columns(3)
         new_c_after = p5.number_input("New fix_c", value=float(rd['c_after']), step=100.0, format="%.0f")
         new_p_new = p6.number_input("New Price", value=float(rd['p_new']), step=0.1, format="%.2f")
         new_b_after = p7.number_input("New Baseline", value=float(rd['b_after']), step=0.1, format="%.2f")
-        new_sigma = p8.number_input("Volatility (σ)", value=float(rd['sigma']), step=0.01, format="%.2f")
 
         if st.button("✅ Commit Round — บันทึกถาวร", type="primary"):
             rd.update({
                 'shannon_profit': new_shannon, 
-                'harvest_profit': new_harvest, 
                 'hedge_cost': new_hedge, 
                 'surplus': new_surplus, 
                 'c_after': new_c_after, 
                 'p_new': new_p_new, 
                 'b_after': new_b_after, 
-                'sigma': new_sigma, 
                 'scale_up': new_c_after - rd['c_before']
             })
             commit_round(data, st.session_state["_pending_ticker_idx"], rd)
@@ -306,6 +299,31 @@ def _render_pool_cf_section(data: dict):
                 save_trading_data(data)
                 st.success(f"✅ +${amount:,.2f} → Pool CF = ${data['global_pool_cf']:,.2f}")
                 st.rerun()
+
+        st.divider()
+        st.markdown("##### 🌾 Record Harvest Profit")
+        with st.form("record_harvest_form", clear_on_submit=True):
+            hc1, hc2 = st.columns([2, 1])
+            with hc1:
+                h_amount = st.number_input("Harvest Amount ($)", min_value=0.0, value=0.0, step=100.0)
+                h_ticker = st.selectbox("Note (Select Ticker)", options=note_options, key="harvest_note")
+            with hc2:
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                btn_harvest = st.form_submit_button("🌾 Add Harvest", type="primary")
+                
+            if btn_harvest and h_amount > 0:
+                data["global_pool_cf"] = data.get("global_pool_cf", 0) + h_amount
+                note_str = "Harvest Profit"
+                if h_ticker and h_ticker != "None":
+                    note_str += f" [Ticker: {h_ticker}]"
+                log_treasury_event(data, "Harvest", h_amount, note_str)
+                save_trading_data(data)
+                st.success(f"✅ +${h_amount:,.2f} Harvest → Pool CF = ${data['global_pool_cf']:,.2f}")
+                st.rerun()
+
 
 def _render_deployment_section(data: dict, tickers_list: list):
     if not tickers_list:
@@ -452,8 +470,7 @@ def _render_consolidated_history(t_data: dict):
             "Price": f"${rd.get('p_old',0):,.2f} > ${rd.get('p_new',0):,.2f}", 
             "fix_c": f"${rd.get('c_before',0):,.0f} > ${rd.get('c_after',0):,.0f}",
             "b": f"${rd.get('b_before',0):,.2f} > ${rd.get('b_after',0):,.2f}", 
-            "Net Result": f"${rd.get('surplus',0):,.2f}",
-            "Sigma": f"{rd.get('sigma',0.0):.2f}"
+            "Net Result": f"${rd.get('surplus',0):,.2f}"
         } for rd in rounds]
         df = pd.DataFrame(tbl)[::-1]
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -541,9 +558,6 @@ def _render_payoff_controls(def_p: float, def_c: float) -> dict:
                 controls["premium_call"] = st.number_input("C Prem", min_value=0.0, value=0.0, step=0.1)
                 controls["premium_put"] = st.number_input("P Prem", min_value=0.0, value=0.0, step=0.1)
                 
-            st.markdown("---")
-            controls["sigma"] = st.slider("Volatility (σ) - Harvest", 0.0, 2.0, 0.5, 0.05)
-
         st.markdown("---")
         t_col1, t_col2, t_col3, t_col4 = st.columns(4)
         controls["showY1"] = t_col1.checkbox("y1: Shannon 1 (+piecewise)", value=True)
@@ -560,8 +574,6 @@ def _render_payoff_controls(def_p: float, def_c: float) -> dict:
         
         controls["showY10"] = t_col4.checkbox("y10: P/L Long (หุ้น)", value=False)
         controls["showY11"] = t_col4.checkbox("y11: P/L Short (หุ้น)", value=False)
-        controls["showY12"] = t_col4.checkbox("y12: Harvest Profit", value=True)
-        controls["includePremium"] = t_col4.checkbox("คำนวณหักต้นทุน Premium", value=True)
         
     return controls
 
@@ -575,8 +587,6 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
     premium_call, premium_put = req["premium_call"], req["premium_put"]
     long_shares, long_entry = req["long_shares"], req["long_entry"]
     short_shares, short_entry = req["short_shares"], req["short_entry"]
-    sigma = req["sigma"]
-    includePremium = req["includePremium"]
 
     # Mathematics Engine (numpy optimized)
     x_min = float(max(0.01, def_p * 0.1))
@@ -598,14 +608,11 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
     y6_ref_d2 = y6_raw * delta2
     y7_ref_d2 = y7_raw * delta2
 
-    y8_call_intrinsic = (np.maximum(0, prices - strike_call) * call_contracts) - (call_contracts * premium_call if includePremium else 0)
-    y9_put_intrinsic = (np.maximum(0, strike_put - prices) * put_contracts) - (put_contracts * premium_put if includePremium else 0)
+    y8_call_intrinsic = (np.maximum(0, prices - strike_call) * call_contracts)
+    y9_put_intrinsic = (np.maximum(0, strike_put - prices) * put_contracts)
 
     y10_long_pl = (prices - long_entry) * long_shares
     y11_short_pl = (short_entry - prices) * short_shares
-
-    harvest_profit = constant1 * 0.5 * (sigma ** 2) * 1.0
-    y12_dynamic = np.full_like(prices, harvest_profit)
 
     components_d2 = []
     if req["showY1"]: components_d2.append(y1_d2)
@@ -616,7 +623,6 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
     if req["showY9"]: components_d2.append(y9_put_intrinsic)
     if req["showY10"]: components_d2.append(y10_long_pl)
     if req["showY11"]: components_d2.append(y11_short_pl)
-    if req["showY12"]: components_d2.append(y12_dynamic)
 
     y3_delta2 = np.sum(components_d2, axis=0) if components_d2 else np.zeros_like(prices)
     y_overlay_d2 = y3_delta2 - y6_ref_d2
@@ -630,7 +636,6 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         if req["showY2"]: fig1.add_trace(go.Scatter(x=prices, y=y2_d2, name=f"y2 (δ={delta2:.2f})", line=dict(color='#fde047', width=3)))
         if req["showY4"]: fig1.add_trace(go.Scatter(x=prices, y=y4_piece, name="y4 (piecewise δ y2)", line=dict(color='#a3e635', width=3)))
         if req["showY5"]: fig1.add_trace(go.Scatter(x=prices, y=y5_piece, name="y5 (piecewise δ y1)", line=dict(color='#10b981', width=3)))
-        if req["showY12"]: fig1.add_trace(go.Scatter(x=prices, y=y12_dynamic, name="y12 (Harvest Profit)", line=dict(color='#2196f3', width=3, dash='dash')))
         if req["showY3"]: fig1.add_trace(go.Scatter(x=prices, y=y3_delta2, name="Net (δ2 base)", line=dict(color='#f472b6', width=3.5)))
         if req["showY6"]: fig1.add_trace(go.Scatter(x=prices, y=y6_ref_d2, name="y6 (Benchmark, δ2)", line=dict(color='#94a3b8', width=2.5, dash='dash')))
         if req["showY7"]: fig1.add_trace(go.Scatter(x=prices, y=y7_ref_d2, name="y7 (Ref y2, δ2)", line=dict(color='#c084fc', width=2.5, dash='dash')))
@@ -675,41 +680,36 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict):
         # Calculate single-point values for Sankey
         idx = (np.abs(prices - inspect_p)).argmin()
         s_shannon = y1_d2[idx]
-        s_harvest = y12_dynamic[idx]
         s_options = y8_call_intrinsic[idx] + y9_put_intrinsic[idx]
         s_net = y3_delta2[idx]
         
-        _render_sankey_flow(s_shannon, s_harvest, s_options, s_net, inspect_p)
+        _render_sankey_flow(s_shannon, s_options, s_net, inspect_p)
 
-def _render_sankey_flow(shannon: float, harvest: float, options: float, net: float, price: float):
+def _render_sankey_flow(shannon: float, options: float, net: float, price: float):
     # Balanced Sankey Logic: Sum(In) = Sum(Out)
-    # Nodes: 0:Shannon, 1:Harvest, 2:Options, 3:Gross Flow (Engine), 4:Net Surplus, 5:Net Deficit
-    nodes = ["Shannon P/L", "Harvest Profit", "Options P/L", "Total Flow (Engine)", "Net Surplus", "Net Deficit"]
+    # Nodes: 0:Shannon, 1:Options, 2:Gross Flow (Engine), 3:Net Surplus, 4:Net Deficit
+    nodes = ["Shannon P/L", "Options P/L", "Total Flow (Engine)", "Net Surplus", "Net Deficit"]
     
     sources = []
     targets = []
     values = []
     colors = []
     
-    # 1. Incoming to Engine (node 3)
+    # 1. Incoming to Engine (node 2)
     if shannon > 0:
-        sources.append(0); targets.append(3); values.append(shannon); colors.append("rgba(34, 211, 238, 0.4)")
-    if harvest > 0:
-        sources.append(1); targets.append(3); values.append(harvest); colors.append("rgba(33, 150, 243, 0.4)")
+        sources.append(0); targets.append(2); values.append(shannon); colors.append("rgba(34, 211, 238, 0.4)")
     if options > 0:
-        sources.append(2); targets.append(3); values.append(options); colors.append("rgba(34, 197, 94, 0.4)")
+        sources.append(1); targets.append(2); values.append(options); colors.append("rgba(34, 197, 94, 0.4)")
     if net < 0:
-        sources.append(5); targets.append(3); values.append(abs(net)); colors.append("rgba(239, 68, 68, 0.2)")
+        sources.append(4); targets.append(2); values.append(abs(net)); colors.append("rgba(239, 68, 68, 0.2)")
 
-    # 2. Outgoing from Engine (node 3)
+    # 2. Outgoing from Engine (node 2)
     if shannon < 0:
-        sources.append(3); targets.append(0); values.append(abs(shannon)); colors.append("rgba(148, 163, 184, 0.4)")
-    if harvest < 0: # Should not happen in this model
-        sources.append(3); targets.append(1); values.append(abs(harvest)); colors.append("rgba(148, 163, 184, 0.4)")
+        sources.append(2); targets.append(0); values.append(abs(shannon)); colors.append("rgba(148, 163, 184, 0.4)")
     if options < 0:
-        sources.append(3); targets.append(2); values.append(abs(options)); colors.append("rgba(239, 68, 68, 0.4)")
+        sources.append(2); targets.append(1); values.append(abs(options)); colors.append("rgba(239, 68, 68, 0.4)")
     if net > 0:
-        sources.append(3); targets.append(4); values.append(net); colors.append("rgba(244, 114, 182, 0.4)")
+        sources.append(2); targets.append(3); values.append(net); colors.append("rgba(244, 114, 182, 0.4)")
 
     # Avoid zero-value Sankey errors
     if not values:
@@ -722,7 +722,7 @@ def _render_sankey_flow(shannon: float, harvest: float, options: float, net: flo
           thickness = 20,
           line = dict(color = "black", width = 0.5),
           label = nodes,
-          color = ["#22d3ee", "#2196f3", "#22c55e", "#94a3b8", "#f472b6", "#ef4444"]
+          color = ["#22d3ee", "#22c55e", "#94a3b8", "#f472b6", "#ef4444"]
         ),
         link = dict(
           source = sources,
@@ -734,11 +734,10 @@ def _render_sankey_flow(shannon: float, harvest: float, options: float, net: flo
     fig.update_layout(title_text=f"Capital Flow at Price ${price:,.2f}", font_size=12, height=500)
     st.plotly_chart(fig, use_container_width=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Shannon", f"${shannon:,.2f}", delta_color="normal" if shannon >= 0 else "inverse")
-    c2.metric("Harvest", f"${harvest:,.2f}")
-    c3.metric("Options Net", f"${options:,.2f}")
-    c4.metric("Net Surplus", f"${net:,.2f}", delta_color="normal" if net >= 0 else "inverse")
+    c2.metric("Options Net", f"${options:,.2f}")
+    c3.metric("Net Surplus", f"${net:,.2f}", delta_color="normal" if net >= 0 else "inverse")
 
 
 # ----------------------------------------------------------
