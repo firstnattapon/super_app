@@ -231,7 +231,7 @@ def _render_run_chain_round_section(data: dict, selected: str, t_data: dict, idx
     with st.form("run_round_form", clear_on_submit=False):
         r1, r2, r3 = st.columns(3)
         with r1: 
-            p_new = st.number_input(f"ราคาใหม่ P", min_value=0.01, value=round(state.get("price", 10.0) * 1.1, 2), step=1.0)
+            p_new = st.number_input(f"ราคาใหม่ P", min_value=0.01, value=float(max(0.01, round(state.get("price", 10.0) * 1.1, 2))), step=1.0)
         with r2: 
             sigma = st.number_input("Volatility (σ)", min_value=0.05, value=default_sigma, step=0.05)
         with r3: 
@@ -493,37 +493,41 @@ def _render_payoff_profile_tab(data: dict):
     _calculate_and_plot_payoff(def_p, def_c, controls)
 
 def _render_payoff_controls(def_p: float, def_c: float) -> dict:
+    # Ensure def_p and def_c are within safe bounds for Streamlit UI
+    safe_p = float(max(0.01, def_p))
+    safe_c = float(max(1.0, def_c))
+
     with st.expander("🛠️ แผงควบคุมตัวแปร (Simulator Controls)", expanded=True):
         col_c1, col_c2, col_c3 = st.columns(3)
         controls = {}
         
         with col_c1:
             st.markdown("##### 🟢 กลุ่มหลัก (Shannon 1 / Long หุ้น)")
-            controls["x0_1"] = st.number_input("จุดอ้างอิง x0_1", min_value=0.1, max_value=1000.0, value=def_p, step=1.0)
-            controls["constant1"] = st.number_input("เงินทุน Constant C", min_value=100.0, value=def_c, step=100.0)
-            controls["b1"] = st.number_input("ค่า Bias เลื่อนแกน (b1)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            controls["x0_1"] = st.number_input("จุดอ้างอิง x0_1", min_value=0.01, value=safe_p, step=1.0)
+            controls["constant1"] = st.number_input("เงินทุน Constant C", min_value=1.0, value=safe_c, step=100.0)
+            controls["b1"] = st.number_input("ค่า Bias เลื่อนแกน (b1)", value=0.0, step=100.0)
             controls["delta1"] = st.slider("ความชันขาลง (δ1 สำหรับ x < x0)", 0.0, 2.0, 0.2, 0.05)
             st.markdown("---")
             controls["long_shares"] = st.number_input("จำนวน Quantity (y10 Long)", min_value=0, value=100)
-            controls["long_entry"] = st.number_input("ราคา Long Entry", min_value=0.1, value=def_p, step=1.0)
+            controls["long_entry"] = st.number_input("ราคา Long Entry", min_value=0.01, value=safe_p, step=1.0)
             
         with col_c2:
             st.markdown("##### 🟡 กลุ่มรอง (Shannon 2 / Short หุ้น)")
-            controls["x0_2"] = st.number_input("จุดอ้างอิง x0_2", min_value=0.1, max_value=1000.0, value=max(def_p*1.5, 0.1), step=1.0)
-            controls["constant2"] = st.number_input("เงินทุน Constant (y2/y4)", min_value=100.0, value=def_c, step=100.0)
-            controls["b2"] = st.number_input("ค่า Bias เลื่อนแกน (b2)", min_value=-10000.0, max_value=10000.0, value=0.0, step=100.0)
+            controls["x0_2"] = st.number_input("จุดอ้างอิง x0_2", min_value=0.01, value=float(max(safe_p*1.5, 0.01)), step=1.0)
+            controls["constant2"] = st.number_input("เงินทุน Constant (y2/y4)", min_value=1.0, value=safe_c, step=100.0)
+            controls["b2"] = st.number_input("ค่า Bias เลื่อนแกน (b2)", value=0.0, step=100.0)
             controls["delta2"] = st.slider("ความชันขาขึ้น (δ2 สำหรับ x >= x0)", 0.0, 2.0, 1.0, 0.05)
             st.markdown("---")
             controls["short_shares"] = st.number_input("จำนวน Quantity (y11 Short)", min_value=0, value=100)
-            controls["short_entry"] = st.number_input("ราคา Short Entry", min_value=0.1, value=max(def_p*1.5, 0.1), step=1.0)
+            controls["short_entry"] = st.number_input("ราคา Short Entry", min_value=0.01, value=float(max(safe_p*1.5, 0.01)), step=1.0)
 
         with col_c3:
             st.markdown("##### ⚔️ กลุ่ม Options & Benchmark")
             c3_1, c3_2 = st.columns(2)
             with c3_1: 
-                controls["anchorY6"] = st.number_input("ราคา Benchmark", min_value=0.1, value=def_p, step=1.0)
+                controls["anchorY6"] = st.number_input("ราคา Benchmark", min_value=0.01, value=safe_p, step=1.0)
             with c3_2: 
-                controls["refConst"] = st.number_input("เงินลงทุนอ้างอิง", min_value=100.0, value=def_c, step=100.0)
+                controls["refConst"] = st.number_input("เงินลงทุนอ้างอิง", min_value=1.0, value=safe_c, step=100.0)
             
             st.markdown("---")
             st.caption("Call Options (y8) | Put Options (y9)")
@@ -532,8 +536,8 @@ def _render_payoff_controls(def_p: float, def_c: float) -> dict:
                 controls["call_contracts"] = st.number_input("Call Qty", min_value=0, value=100)
                 controls["put_contracts"] = st.number_input("Put Qty", min_value=0, value=100)
             with o2: 
-                controls["strike_call"] = st.number_input("C Strike", min_value=0.1, value=def_p, step=1.0)
-                controls["strike_put"] = st.number_input("P Strike", min_value=0.1, value=def_p, step=1.0)
+                controls["strike_call"] = st.number_input("C Strike", min_value=0.01, value=safe_p, step=1.0)
+                controls["strike_put"] = st.number_input("P Strike", min_value=0.01, value=safe_p, step=1.0)
             with o3: 
                 controls["premium_call"] = st.number_input("C Prem", min_value=0.0, value=0.0, step=0.1)
                 controls["premium_put"] = st.number_input("P Prem", min_value=0.0, value=0.0, step=0.1)
