@@ -337,6 +337,71 @@ def _render_pool_cf_section(data: dict):
                 st.success(f"✅ +${h_amount:,.2f} Harvest → Pool CF = ${data['global_pool_cf']:,.2f}")
                 st.rerun()
 
+        st.divider()
+        st.markdown("##### 📥 Extract Baseline to Pool CF")
+        # Filter tickers that actually have a positive baseline
+        eligible_tickers = [t for t in get_tickers(data) if t.get("current_state", {}).get("baseline", 0) > 0]
+        
+        if eligible_tickers:
+            with st.form("extract_baseline_form", clear_on_submit=True):
+                hc1, hc2 = st.columns([2, 1])
+                with hc1:
+                    ext_ticker_name = st.selectbox("Select Ticker", options=[t.get("ticker") for t in eligible_tickers], key="extract_ticker")
+                    # Find the selected ticker object to get its max baseline
+                    selected_t_obj = next((t for t in eligible_tickers if t.get("ticker") == ext_ticker_name), None)
+                    max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0)) if selected_t_obj else 0.0
+                    
+                    ext_amount = st.number_input("Extract Amount ($)", min_value=0.0, max_value=max_baseline, value=max_baseline, step=100.0)
+                with hc2:
+                    st.write("")
+                    st.write("")
+                    st.write("")
+                    st.write("")
+                    btn_extract = st.form_submit_button("📥 Extract to Pool CF", type="primary")
+                    
+                if btn_extract and ext_amount > 0 and selected_t_obj:
+                    # 1. Update Ticker state
+                    current_baseline = selected_t_obj["current_state"]["baseline"]
+                    selected_t_obj["current_state"]["baseline"] -= ext_amount
+                    
+                    # 2. Add to Pool CF
+                    data["global_pool_cf"] = data.get("global_pool_cf", 0.0) + ext_amount
+                    
+                    # 3. Log event
+                    log_treasury_event(data, "Baseline Harvest", ext_amount, f"[Ticker: {ext_ticker_name}]")
+                    
+                    # 4. Record dummy round to preserve history of baseline change
+                    cur_state = selected_t_obj["current_state"]
+                    dummy_round = {
+                        "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), 
+                        "action": "Extract Baseline", 
+                        "p_old": cur_state.get("price", 0), 
+                        "p_new": cur_state.get("price", 0), 
+                        "c_before": cur_state.get("fix_c", 0), 
+                        "c_after": cur_state.get("fix_c", 0),
+                        "shannon_profit": 0.0, 
+                        "harvest_profit": 0.0, 
+                        "hedge_cost": 0.0,
+                        "surplus": 0.0, 
+                        "scale_up": 0.0, 
+                        "b_before": current_baseline, 
+                        "b_after": current_baseline - ext_amount, 
+                        "note": f"Extracted ${ext_amount:,.2f} to Pool CF",
+                        "hedge_ratio": 0.0, 
+                        "sigma": 0.0, 
+                        "ev_change": 0.0
+                    }
+                    if "rounds" not in selected_t_obj:
+                        selected_t_obj["rounds"] = []
+                    selected_t_obj["rounds"].append(dummy_round)
+
+                    # 5. Save & Rerun
+                    save_trading_data(data)
+                    st.success(f"✅ Extracted ${ext_amount:,.2f} from {ext_ticker_name} Baseline to Pool CF")
+                    st.rerun()
+        else:
+            st.info("No tickers with a positive Baseline available for extraction.")
+
 
 def _render_deployment_section(data: dict, tickers_list: list):
     if not tickers_list:
@@ -798,21 +863,14 @@ def _render_manage_data(data: dict):
                 uploaded_data = json.load(uploaded_file)
                 if isinstance(uploaded_data, dict) and "tickers" in uploaded_data:
                     st.warning("⚠️ การ Import จะเป็นการ **เขียนทับข้อมูลปัจจุบัน** ทั้งหมด คุณแน่ใจหรือไม่?")
-                    if st.button("✅ Confirm Import", type="primary"):
+                    if st.button("🚨 ยืนยันการ Import ข้อมูล (ทับของเดิม)"):
                         save_trading_data(uploaded_data)
-                        st.success("นำเข้าข้อมูลสำเร็จ! ระบบกำลังรีโหลด...")
+                        st.success("✅ Import ข้อมูลสำเร็จ!")
                         st.rerun()
                 else:
-                    st.error("❌ ไฟล์ JSON ไม่ถูกต้อง หรือไม่มีโครงสร้างข้อมูลของระบบ Chain (ขาดคีย์ 'tickers')")
+                    st.error("❌ รูปแบบไฟล์ JSON ไม่ถูกต้องสำหรับ Chain System")
             except Exception as e:
                 st.error(f"❌ เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
-
-    with st.expander("⚠️ ลบข้อมูลทั้งหมด", expanded=False):
-        if st.button("DELETE ALL DATA", type="primary"):
-            data.update({"tickers": [], "global_pool_cf": 0.0, "global_ev_reserve": 0.0, "treasury_history": []})
-            save_trading_data(data)
-            st.warning("All data cleared!")
-            st.rerun()
 
 if __name__ == "__main__":
     main()
