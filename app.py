@@ -172,10 +172,6 @@ def _render_engine_tab(data: dict):
         st.info("ยังไม่มี ticker — เพิ่มที่แท็บ ➕ Manage Data ก่อน")
         return
 
-    st.divider()
-    _render_historical_log_sankey(data)
-    st.divider()
-
     col_left, col_right = st.columns([3, 2], gap="large")
 
     with col_left:
@@ -527,99 +523,6 @@ def _render_ev_leaps_section(data: dict):
                 st.rerun()
         
         st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
-
-def _render_historical_log_sankey(data: dict):
-    history = data.get("treasury_history", [])
-    if not history:
-        return
-        
-    st.subheader("🔗 Capital Flow (Sankey) — Flow ตาม log")
-    
-    # Aggregate flows
-    flows = {"Funding": 0.0, "Harvest": 0.0, "Baseline Harvest": 0.0, 
-             "Deploy": 0.0, "Allocation": 0.0, "Expense": 0.0, "Income": 0.0}
-             
-    for e in history:
-        cat = e.get("category", "")
-        amt = e.get("amount", 0.0)
-        if cat in flows:
-            if cat in ["Deploy", "Expense"]:
-                flows[cat] += abs(amt)
-            else:
-                flows[cat] += amt if amt > 0 else 0.0
-                
-    # Calculate Pool CF balancing
-    pool_in = flows["Funding"] + flows["Harvest"] + flows["Baseline Harvest"]
-    pool_out = flows["Deploy"] + flows["Allocation"]
-    
-    # Calculate EV Reserve balancing
-    ev_in = flows["Allocation"] + flows["Income"]
-    ev_out = flows["Expense"]
-
-    # Nodes
-    labels = ["Funding", "Harvest", "Baseline", "Pool CF", "Deploy", "Allocation", 
-              "EV Reserve", "Income", "Expense", "Pool CF (Retained)", 
-              "EV Reserve (Retained)", "EV Deficit (Debt)"]
-    node_idx = {l: i for i, l in enumerate(labels)}
-    
-    sources = []
-    targets = []
-    values = []
-    colors = []
-    
-    # Pool Inflows
-    if flows["Funding"] > 0: sources.append(node_idx["Funding"]); targets.append(node_idx["Pool CF"]); values.append(flows["Funding"]); colors.append("rgba(34, 211, 238, 0.4)")
-    if flows["Harvest"] > 0: sources.append(node_idx["Harvest"]); targets.append(node_idx["Pool CF"]); values.append(flows["Harvest"]); colors.append("rgba(34, 197, 94, 0.4)")
-    if flows["Baseline Harvest"] > 0: sources.append(node_idx["Baseline"]); targets.append(node_idx["Pool CF"]); values.append(flows["Baseline Harvest"]); colors.append("rgba(59, 130, 246, 0.4)")
-    
-    # Pool Outflows
-    if flows["Deploy"] > 0: sources.append(node_idx["Pool CF"]); targets.append(node_idx["Deploy"]); values.append(flows["Deploy"]); colors.append("rgba(168, 85, 247, 0.4)")
-    if flows["Allocation"] > 0: sources.append(node_idx["Pool CF"]); targets.append(node_idx["EV Reserve"]); values.append(flows["Allocation"]); colors.append("rgba(234, 179, 8, 0.4)")
-    
-    # Pool Remaining
-    pool_retained = pool_in - pool_out
-    if pool_retained > 0:
-        sources.append(node_idx["Pool CF"]); targets.append(node_idx["Pool CF (Retained)"]); values.append(pool_retained); colors.append("rgba(148, 163, 184, 0.4)")
-    elif pool_retained < 0:
-        # If somehow we deployed more than we funded in logs
-        labels.append("Initial Pool CF")
-        node_idx["Initial Pool CF"] = len(labels) - 1
-        sources.append(node_idx["Initial Pool CF"]); targets.append(node_idx["Pool CF"]); values.append(abs(pool_retained)); colors.append("rgba(156, 163, 175, 0.4)")
-
-    # EV Inflows
-    if flows["Income"] > 0: sources.append(node_idx["Income"]); targets.append(node_idx["EV Reserve"]); values.append(flows["Income"]); colors.append("rgba(16, 185, 129, 0.4)")
-    
-    # EV Outflows
-    if flows["Expense"] > 0: sources.append(node_idx["EV Reserve"]); targets.append(node_idx["Expense"]); values.append(flows["Expense"]); colors.append("rgba(239, 68, 68, 0.4)")
-    
-    # EV Balancing
-    ev_retained = ev_in - ev_out
-    if ev_retained > 0:
-        sources.append(node_idx["EV Reserve"]); targets.append(node_idx["EV Reserve (Retained)"]); values.append(ev_retained); colors.append("rgba(148, 163, 184, 0.4)")
-    elif ev_retained < 0:
-        sources.append(node_idx["EV Deficit (Debt)"]); targets.append(node_idx["EV Reserve"]); values.append(abs(ev_retained)); colors.append("rgba(244, 63, 94, 0.4)")
-
-    if not values:
-        st.info("No capital flow recorded in history yet.")
-        return
-
-    fig = go.Figure(data=[go.Sankey(
-        node = dict(
-          pad = 20,
-          thickness = 20,
-          line = dict(color = "black", width = 0.5),
-          label = labels,
-          color = "#334155"
-        ),
-        link = dict(
-          source = sources,
-          target = targets,
-          value = values,
-          color = colors
-        ))])
-
-    fig.update_layout(title_text="Capital Flow from Treasury Log", font_size=12, height=450)
-    st.plotly_chart(fig, use_container_width=True)
 
 def _render_treasury_log(data: dict):
     st.subheader("🏛️ Treasury & Ops History")
