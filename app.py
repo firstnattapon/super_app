@@ -220,17 +220,11 @@ def _chip_label(t_data: dict) -> str:
 
 # ── TOP METRICS BAR: Left = Global, Right = Per-Ticker ────────────────
 def _fmt(v: float) -> str:
-    """Compact number format that always fits in a narrow st.metric column.
-    ≥ 1M  → $1.2M   |   ≥ 1K → $10.3K   |   < 1K → $25.20
-    Negatives: -$13.5K etc.
+    """Full number format with comma separators.
+    Shows full value: -$13,500.00 instead of -$13.5K
     """
-    av = abs(v)
     sign = "-" if v < 0 else ""
-    if av >= 1_000_000:
-        return f"{sign}${av/1_000_000:.1f}M"
-    if av >= 1_000:
-        return f"{sign}${av/1_000:.1f}K"
-    return f"${v:,.2f}"
+    return f"{sign}${abs(v):,.2f}"
 
 
 def _render_engine_metrics(data: dict, tickers_list: list,
