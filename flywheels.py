@@ -97,19 +97,6 @@ def _migrate_data_if_needed(raw_data: Union[Dict, List]) -> Dict[str, Any]:
         return raw_data
         
     tickers = raw_data if isinstance(raw_data, list) else []
-    for item in tickers:
-        if "current_state" not in item:
-            t, c, b = parse_final(item.get("Final", ""))
-            ev, _ = parse_beta_numbers(item.get("beta_Equation", ""))
-            item["current_state"] = {
-                "price": t if t is not None else 0.0,
-                "fix_c": c if c is not None else 0.0,
-                "baseline": b if b is not None else 0.0,
-                "pool_cf_net": 0.0,
-                "cumulative_ev": abs(ev) if ev else 0.0,
-            }
-        if "rounds" not in item:
-            item["rounds"] = []
             
     return {
         "version": 2,
@@ -203,7 +190,8 @@ def commit_round(data: Dict[str, Any], ticker_idx: int, round_data: Dict[str, An
     ticker["rounds"].append(round_data)
 
     # Update current_state
-    old_ev = float(ticker.get("current_state", {}).get("cumulative_ev", 0.0))
+    cur_state = ticker.get("current_state", {})
+    old_ev = float(cur_state.get("cumulative_ev", 0.0))
     hedge_cost = float(round_data.get("hedge_cost", 0.0))
     ev_change = float(round_data.get("ev_change", hedge_cost))
     
@@ -211,28 +199,13 @@ def commit_round(data: Dict[str, Any], ticker_idx: int, round_data: Dict[str, An
         "price": float(round_data.get("p_new", 0.0)),
         "fix_c": float(round_data.get("c_after", 0.0)),
         "baseline": float(round_data.get("b_after", 0.0)),
-        "pool_cf_net": float(ticker.get("current_state", {}).get("pool_cf_net", 0.0)),
+        "pool_cf_net": float(cur_state.get("pool_cf_net", 0.0)),
         "cumulative_ev": max(0.0, old_ev + ev_change),
+        "surplus_iv": float(cur_state.get("surplus_iv", 0.0)),
+        "lock_pnl": float(cur_state.get("lock_pnl", 0.0)),
+        "net_pnl": float(cur_state.get("net_pnl", 0.0)),
+        "strategy_tags": cur_state.get("strategy_tags", [])
     }
-
-    # Sync legacy Final
-    ticker["Final"] = f"{round_data.get('p_new', 0)}, {round_data.get('c_after', 0)}, {round_data.get('b_after', 0)}"
-
-    # Write legacy history entry
-    h_idx = 1
-    while f"history_{h_idx}" in ticker:
-        h_idx += 1
-        
-    desc = (f"ราคาอ้างอิง: {round_data.get('p_old', 0)} → {round_data.get('p_new', 0)} , "
-            f"ทุนคงที่: {round_data.get('c_before', 0)} → {round_data.get('c_after', 0)} , "
-            f"ราคาปัจจุบัน: {round_data.get('p_new', 0)}")
-            
-    calc = (f"{round_data.get('b_before', 0):.2f} += ({round_data.get('c_before', 0)} × ln({round_data.get('p_new', 1)}/{round_data.get('p_old', 1) if round_data.get('p_old') else 1})) − "
-            f"({round_data.get('c_after', 0)} × ln({round_data.get('p_new', 1)}/{round_data.get('p_new', 1)})) | "
-            f"c = {round_data.get('c_after', 0)} , t = {round_data.get('p_new', 0)} , b = {round_data.get('b_after', 0)}")
-            
-    ticker[f"history_{h_idx}"] = desc
-    ticker[f"history_{h_idx}.1"] = calc
 
     data["tickers"][ticker_idx] = ticker
     save_trading_data(data)
@@ -262,19 +235,13 @@ def allocate_pool_funds(data: Dict[str, Any], ticker_idx: int, amount: float, ac
     data["global_pool_cf"] -= amount
     
     # 2. Apply Logic based on Action
+    old_c = float(state.get("fix_c", 0.0))
     if action_type == "Scale Up":
-        old_c = float(state.get("fix_c", 0.0))
         state["fix_c"] = old_c + amount
-        # Sync Final
-        t = float(state.get("price", 0.0))
-        b = float(state.get("baseline", 0.0))
-        ticker["Final"] = f"{t}, {state['fix_c']:.2f}, {b:.2f}"
-    
     elif action_type == "Pay Ev":
         # Reducing the visible "Burn Rate" debt
         old_ev_debt = float(state.get("cumulative_ev", 0.0))
         state["cumulative_ev"] = max(0.0, old_ev_debt - amount)
-        
     elif action_type in ["Buy Puts", "Buy Calls"]:
         # Just an expenditure, maybe track in a log if we had one.
         pass
@@ -282,137 +249,46 @@ def allocate_pool_funds(data: Dict[str, Any], ticker_idx: int, amount: float, ac
     ticker["current_state"] = state
     data["tickers"][ticker_idx] = ticker
     
-    # 3. Log History (Optional but good for tracking)
-    h_idx = 1
-    while f"history_{h_idx}" in ticker:
-        h_idx += 1
+    # 3. Log History as a round
+    round_data = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "action": f"🎱 {action_type}",
+        "p_old": float(state.get("price", 0.0)),
+        "p_new": float(state.get("price", 0.0)),
+        "c_before": old_c,
+        "c_after": float(state.get("fix_c", 0.0)),
+        "b_before": float(state.get("baseline", 0.0)),
+        "b_after": float(state.get("baseline", 0.0)),
+        "surplus": 0.0,
+        "scale_up": amount if action_type == "Scale Up" else 0.0,
+        "note": note
+    }
     
-    if action_type == "Scale Up":
-        desc = f"🎱 Pool Allocation: {action_type} +${amount:,.2f}"
-        calc = f"fix_c updated to {state.get('fix_c', 0):.2f} | Note: {note}"
-    elif action_type == "Pay Ev":
-        desc = f"🎱 Pool Allocation: {action_type} -${amount:,.2f}"
-        calc = f"Burn Rate (Ev Debt) reduced by {amount:,.2f} | Note: {note}"
-    else:
-        desc = f"🎱 Pool Allocation: {action_type} -${amount:,.2f}"
-        calc = f"Funded via Pool CF | Note: {note}"
-
-    ticker[f"history_{h_idx}"] = desc
-    ticker[f"history_{h_idx}.1"] = calc
+    if "rounds" not in ticker:
+        ticker["rounds"] = []
+    round_data["round_id"] = len(ticker["rounds"]) + 1
+    ticker["rounds"].append(round_data)
     
     save_trading_data(data)
     return data, True
 
-
-def parse_final(final_str: str) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """Parse 'Final' field → (t, c, b).  e.g. '12, 4000, -519.45' → (12.0, 4000.0, -519.45)"""
-    if not final_str:
-        return None, None, None
-    parts = [sanitize_number_str(p) for p in final_str.split(",")]
-    try:
-        t = float(parts[0]) if len(parts) > 0 and parts[0] else None
-        c = float(parts[1]) if len(parts) > 1 and parts[1] else None
-        b = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
-        return t, c, b
-    except (ValueError, IndexError):
-        return None, None, None
-
-def parse_beta_numbers(beta_str: str) -> Tuple[float, float]:
-    """Extract Ev and Lock_P&L from beta_Equation string."""
-    ev, lock_pnl = 0.0, 0.0
-    if not beta_str:
-        return ev, lock_pnl
-    try:
-        beta_str = sanitize_number_str(beta_str)
-        # Extract Ev
-        ev_match = re.search(r'Ev:\s*([+-]?[\d.]+)', beta_str)
-        if ev_match:
-            ev = float(ev_match.group(1))
-        # Extract Lock_P&L
-        lock_match = re.search(r'Lock_P&L:\s*(.+)', beta_str)
-        if lock_match:
-            raw = lock_match.group(1).strip()
-            raw = raw.replace("|", "+")
-            nums = re.findall(r'[+-]?[\d.]+', raw)
-            for n in nums:
-                lock_pnl += float(n)
-        return ev, lock_pnl
-    except Exception:
-        return 0.0, 0.0
-
-def parse_beta_net(beta_mem_str: str) -> float:
-    """Extract Net value from beta_momory string."""
-    if not beta_mem_str:
-        return 0.0
-    try:
-        beta_mem_str = sanitize_number_str(beta_mem_str)
-        m = re.search(r'Net:\s*([+-]?[\d.]+)', beta_mem_str)
-        if m:
-            return float(m.group(1))
-        return 0.0
-    except Exception:
-        return 0.0
-
-def parse_surplus_iv(surplus_str: str) -> float:
-    """Extract Surplus IV (Put premium income) from Surplus_Iv string."""
-    if not surplus_str or "No_Expiry" in surplus_str:
-        return 0.0
-    try:
-        surplus_str = sanitize_number_str(surplus_str)
-        matches = re.findall(r'=\s*([+-]?\d+(?:\.\d+)?)', surplus_str)
-        total = sum(float(m) for m in matches)
-        return total
-    except Exception:
-        return 0.0
-
-def get_rollover_history(ticker_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract all history entries in order, returning list of dicts."""
-    history = []
-    i = 1
-    while True:
-        key_desc = f"history_{i}"
-        key_calc = f"history_{i}.1"
-        if key_desc not in ticker_data and key_calc not in ticker_data:
-            break
-        entry: Dict[str, Any] = {"step": i}
-        entry["description"] = ticker_data.get(key_desc, "")
-        entry["calculation"] = ticker_data.get(key_calc, "")
-        
-        calc_str = entry["calculation"]
-        try:
-            b_match = re.search(r'b\s*=\s*([+-]?[\d,.]+)', calc_str)
-            entry["b"] = float(b_match.group(1).replace(",", "")) if b_match else None
-            
-            c_match = re.search(r'\|\s*c\s*=\s*([\d,.]+)', calc_str)
-            entry["c"] = float(c_match.group(1).replace(",", "")) if c_match else None
-            
-            t_match = re.search(r',\s*t\s*=\s*([\d,.]+)', calc_str)
-            entry["t"] = float(t_match.group(1).replace(",", "")) if t_match else None
-        except Exception:
-            entry["b"], entry["c"], entry["t"] = None, None, None
-            
-        history.append(entry)
-        i += 1
-    return history
 
 def build_portfolio_df(data: List[Dict[str, Any]]) -> pd.DataFrame:
     """Build a pandas DataFrame summarizing all tickers."""
     rows = []
     for item in data:
         ticker = item.get("ticker", "???")
-        t, c, b = parse_final(item.get("Final", ""))
-        ev, lock_pnl = parse_beta_numbers(item.get("beta_Equation", ""))
-        net = parse_beta_net(item.get("beta_momory", ""))
-        surplus_iv = parse_surplus_iv(item.get("Surplus_Iv", ""))
+        state = item.get("current_state", {})
+        
         rows.append({
             "Ticker": ticker,
-            "Price (t)": t if t is not None else 0.0,
-            "Fix_C": c if c is not None else 0.0,
-            "Baseline (b)": b if b is not None else 0.0,
-            "Ev (Extrinsic)": ev,
-            "Lock P&L": lock_pnl,
-            "Surplus IV": surplus_iv,
-            "Net": net,
+            "Price (t)": float(state.get("price", 0.0)),
+            "Fix_C": float(state.get("fix_c", 0.0)),
+            "Baseline (b)": float(state.get("baseline", 0.0)),
+            "Ev (Extrinsic)": float(state.get("cumulative_ev", 0.0)),
+            "Lock P&L": float(state.get("lock_pnl", 0.0)),
+            "Surplus IV": float(state.get("surplus_iv", 0.0)),
+            "Net": float(state.get("net_pnl", 0.0)),
         })
     return pd.DataFrame(rows)
 
