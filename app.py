@@ -702,11 +702,21 @@ def _render_treasury_log(data: dict, filter_ticker: str = ""):
         e.get("note", "").split("[Ticker: ")[-1].rstrip("]")
         for e in history if "[Ticker:" in e.get("note", "")
     })
-    options     = ["🌐 ทั้งหมด"] + all_tickers
-    default_idx = options.index(filter_ticker) if filter_ticker in options else 0
+    options = ["🌐 ทั้งหมด"] + all_tickers
 
-    sel = st.selectbox("กรอง Ticker", options, index=default_idx,
-                       key="treasury_filter_sel", label_visibility="collapsed")
+    # ── Force sync with active Watchlist ticker ──────────────────────────
+    # st.selectbox ignores `index` after first render when key is set.
+    # Solution: detect ticker change → overwrite session_state key directly.
+    target = filter_ticker if filter_ticker in options else "🌐 ทั้งหมด"
+    if st.session_state.get("_treasury_last_ticker") != filter_ticker:
+        st.session_state["treasury_filter_sel"] = target
+        st.session_state["_treasury_last_ticker"] = filter_ticker
+
+    sel = st.selectbox(
+        "กรอง Ticker", options,
+        key="treasury_filter_sel",
+        label_visibility="collapsed"
+    )
 
     filtered = history if sel == "🌐 ทั้งหมด" else [
         e for e in history if sel in e.get("note", "")
