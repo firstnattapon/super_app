@@ -217,10 +217,8 @@ def _chip_label(t_data: dict) -> str:
 
 # ── TOP METRICS BAR: Left = Global (40%), Right = Per-Ticker (60%) ───
 def _fmt(v: float) -> str:
-    """Integer format without symbols or commas.
-    Shows full value: -13500 instead of -$13,500.00
-    """
-    return f"{int(round(v))}"
+    """1-decimal format, compact. e.g. -13461.0"""
+    return f"{v:,.1f}"
 
 
 def _calc_withdraw_b(t_data: dict) -> float:
@@ -235,14 +233,36 @@ def _calc_withdraw_b(t_data: dict) -> float:
     )
 
 
+def _m(label: str, value: str, col, neg_red: bool = False, is_cost: bool = False):
+    """Render a compact metric cell via HTML — small label, readable value."""
+    try:
+        num = float(value.replace(",", ""))
+        if is_cost:
+            color = "#ef4444"
+        elif neg_red:
+            color = "#22c55e" if num >= 0 else "#ef4444"
+        else:
+            color = "#e2e8f0"
+    except ValueError:
+        color = "#e2e8f0"
+
+    col.markdown(
+        f"<div style='line-height:1.2'>"
+        f"<div style='font-size:10px;color:#64748b;white-space:nowrap'>{label}</div>"
+        f"<div style='font-size:15px;font-weight:700;color:{color};white-space:nowrap'>{value}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_engine_metrics(data: dict, tickers_list: list,
                             active_ticker: str, active_t_data: dict):
     # ── Global aggregates ──────────────────────────────────────────────
     pool_cf       = data.get("global_pool_cf", 0.0)
     ev_reserve    = data.get("global_ev_reserve", 0.0)
     total_rounds  = sum(len(t.get("rounds", [])) for t in tickers_list)
-    total_fix_c   = sum(float(t.get("current_state", {}).get("fix_c", 0))        for t in tickers_list)
-    total_net_pnl = sum(float(t.get("current_state", {}).get("net_pnl", 0))      for t in tickers_list)
+    total_fix_c   = sum(float(t.get("current_state", {}).get("fix_c", 0))         for t in tickers_list)
+    total_net_pnl = sum(float(t.get("current_state", {}).get("net_pnl", 0))       for t in tickers_list)
     total_ev_burn = sum(float(t.get("current_state", {}).get("cumulative_ev", 0)) for t in tickers_list)
 
     # ── Active ticker ──────────────────────────────────────────────────
@@ -252,50 +272,47 @@ def _render_engine_metrics(data: dict, tickers_list: list,
     withdraw_b = _calc_withdraw_b(active_t_data) if active_t_data else 0.0
 
     with st.container(border=True):
-        # True 40 / 60 split (divider col is negligible)
-        col_global, col_div, col_ticker = st.columns([4, 0.05, 6])
+        # ── Single row: header labels ─────────────────────────────────
+        hL, hDiv, hR = st.columns([4, 0.05, 6])
+        hL.caption("🌐 Global")
+        if active_t_data:
+            hR.caption(f"📌 {active_ticker}  ·  {len(tickers_list)} Tickers · {total_rounds} Rounds")
 
-        with col_global:
-            st.caption("🌐 Global")
-            # Row 1 — Treasury
-            g1, g2 = st.columns(2)
-            g1.metric("🎱 Pool CF",     _fmt(pool_cf))
-            g2.metric("🛡️ EV Reserve",  _fmt(ev_reserve))
-            # Row 2 — Portfolio totals
-            g3, g4, g5 = st.columns(3)
-            g3.metric("⚡ Fix_C",        _fmt(total_fix_c))
-            g4.metric("💰 Net",
-                      _fmt(total_net_pnl),
-                      delta_color="normal" if total_net_pnl >= 0 else "inverse")
-            g5.metric("🔥 Ev Burn",      _fmt(total_ev_burn),
-                      delta_color="inverse")
-            st.caption(f"📊 {len(tickers_list)} Tickers · {total_rounds} Rounds")
+        # ── Single row: all metrics ───────────────────────────────────
+        # Global  = 5 cols  |  div  |  Ticker = 7 cols
+        (g1, g2, g3, g4, g5,
+         div,
+         t1, t2, t3, t4, t5, t6, t7) = st.columns(
+            [1.6, 1.6, 1.4, 1.4, 1.4,
+             0.05,
+             1.3, 1.3, 1.3, 1.3, 1.3, 1.3, 0.8],
+            gap="small"
+        )
 
-        with col_div:
-            st.markdown(
-                "<div style='border-left:1px solid #334155;height:120px;margin-top:4px'></div>",
-                unsafe_allow_html=True
-            )
+        # Global cells
+        _m("🎱 Pool CF",    _fmt(pool_cf),       g1)
+        _m("🛡️ EV Reserve", _fmt(ev_reserve),    g2, neg_red=True)
+        _m("⚡ Fix_C",       _fmt(total_fix_c),   g3)
+        _m("💰 Net",         _fmt(total_net_pnl), g4, neg_red=True)
+        _m("🔥 Ev Burn",     _fmt(total_ev_burn), g5, is_cost=True)
 
-        with col_ticker:
-            if active_t_data:
-                st.caption(f"📌 {active_ticker}")
-                # Row 1 — Price / Structure
-                t1, t2, t3, t4 = st.columns(4)
-                t1.metric("Price",       _fmt(float(state.get("price", 0))))
-                t2.metric("fix_c",       _fmt(float(state.get("fix_c", 0))))
-                t3.metric("Baseline",    _fmt(float(state.get("baseline", 0))))
-                t4.metric("Withdraw_b",  _fmt(withdraw_b),
-                          help="SUM ของ Extract Baseline ทั้งหมดที่ดึงออกไป (b_before − b_after)")
-                # Row 2 — Cost / Result
-                t5, t6, t7 = st.columns(3)
-                t5.metric("🔥 Ev Burn",  _fmt(float(state.get("cumulative_ev", 0))),
-                          delta_color="inverse")
-                t6.metric("Net P&L",     _fmt(sel_net),
-                          delta_color="normal" if sel_net >= 0 else "inverse")
-                t7.metric("Rounds",      str(sel_rounds))
-            else:
-                st.caption("📌 ยังไม่มี Ticker")
+        # Divider
+        div.markdown(
+            "<div style='border-left:1px solid #334155;height:48px;margin-top:4px'></div>",
+            unsafe_allow_html=True,
+        )
+
+        # Ticker cells
+        if active_t_data:
+            _m("Price",      _fmt(float(state.get("price", 0))),      t1)
+            _m("fix_c",      _fmt(float(state.get("fix_c", 0))),      t2)
+            _m("Baseline",   _fmt(float(state.get("baseline", 0))),   t3)
+            _m("Withdraw_b", _fmt(withdraw_b),                         t4)
+            _m("🔥 Ev Burn", _fmt(float(state.get("cumulative_ev", 0))), t5, is_cost=True)
+            _m("Net P&L",    _fmt(sel_net),                            t6, neg_red=True)
+            _m("Rounds",     str(sel_rounds),                          t7)
+        else:
+            t1.caption("📌 ยังไม่มี Ticker")
 
 
 # ── ZONE LEFT: Ticker Watchlist ────────────────────────────────────────
