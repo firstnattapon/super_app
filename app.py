@@ -33,23 +33,6 @@ except ImportError:
             })
         return _pd.DataFrame(rows)
 
-try:
-    from flywheels import repair_baseline
-except ImportError:
-    def repair_baseline(data):
-        from flywheels import save_trading_data as _save
-        for ticker in data.get("tickers", []):
-            rounds = ticker.get("rounds", [])
-            if rounds:
-                last  = rounds[-1]
-                state = ticker.get("current_state", {})
-                state["baseline"] = float(last.get("b_after", state.get("baseline", 0.0)))
-                state["price"]    = float(last.get("p_new",   state.get("price",    0.0)))
-                state["fix_c"]    = float(last.get("c_after", state.get("fix_c",    0.0)))
-                ticker["current_state"] = state
-        _save(data)
-        return data
-
 # ============================================================
 # HELPER: Treasury Logging
 # ============================================================
@@ -1282,16 +1265,6 @@ def _render_manage_data(data: dict):
             data.update({"tickers": [], "global_pool_cf": 0.0, "global_ev_reserve": 0.0, "treasury_history": []})
             save_trading_data(data)
             st.warning("All data cleared!")
-            st.rerun()
-
-    with st.expander("🔧 Repair / Diagnostic Tools", expanded=False):
-        st.markdown(
-            "**Repair Baseline** — ซ่อมแซม `current_state.baseline / price / fix_c` ให้ตรงกับ `rounds[-1]`\n\n"
-            "ใช้กรณีที่ baseline แสดงค่าผิด (เช่น 0.0) ทั้งที่ rounds มีค่าถูกต้อง"
-        )
-        if st.button("🔧 Repair Baseline Data", key="btn_repair_baseline"):
-            repair_baseline(data)
-            st.success("✅ Repair สำเร็จ! ค่า baseline, price, fix_c ถูก sync จาก rounds[-1] แล้ว")
             st.rerun()
 
 if __name__ == "__main__":
