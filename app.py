@@ -234,7 +234,7 @@ def _render_engine_metrics(data: dict, tickers_list: list,
     sel_rounds = len(active_t_data.get("rounds", [])) if active_t_data else 0
 
     with st.container(border=True):
-        col_global, col_div, col_ticker = st.columns([4, 0.1, 5])
+        col_global, col_div, col_ticker = st.columns([3, 0.1, 7])
 
         with col_global:
             st.caption("🌐 Global")
@@ -253,15 +253,16 @@ def _render_engine_metrics(data: dict, tickers_list: list,
         with col_ticker:
             if active_t_data:
                 st.caption(f"📌 {active_ticker}")
-                t1, t2, t3, t4, t5, t6 = st.columns(6)
-                t1.metric("Price",      _fmt(float(state.get("price", 0))))
-                t2.metric("fix_c",      _fmt(float(state.get("fix_c", 0))))
-                t3.metric("Baseline",   _fmt(float(state.get("baseline", 0))))
-                t4.metric("Ev Burn 🔥", _fmt(float(state.get("cumulative_ev", 0))),
+                t1, t2, t3, t4, t5, t6, t7 = st.columns(7)
+                t1.metric("Price",        _fmt(float(state.get("price", 0))))
+                t2.metric("fix_c",        _fmt(float(state.get("fix_c", 0))))
+                t3.metric("Baseline",     _fmt(float(state.get("baseline", 0))))
+                t4.metric("Withdraw_b",   _fmt(float(state.get("withdraw_b", 0))))
+                t5.metric("Ev Burn 🔥",  _fmt(float(state.get("cumulative_ev", 0))),
                           delta_color="inverse")
-                t5.metric("Net P&L",    _fmt(sel_net),
+                t6.metric("Net P&L",      _fmt(sel_net),
                           delta_color="normal" if sel_net >= 0 else "inverse")
-                t6.metric("Rounds",     str(sel_rounds))
+                t7.metric("Rounds",       str(sel_rounds))
             else:
                 st.caption("📌 ยังไม่มี Ticker")
 
