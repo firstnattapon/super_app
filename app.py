@@ -441,38 +441,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
 
             st.divider()
 
-            # ── 📐 Baseline Formula Display ────────────────────────────
-            import math as _math
-            _b_old   = float(rd["b_before"])
-            _c_old   = float(rd["c_before"])
-            _c_new   = float(rd["c_after"])
-            _p_old   = float(rd["p_old"])
-            _p_new_v = float(rd["p_new"])
-
-            if _p_old > 0 and _p_new_v > 0:
-                _shannon_term  = _c_old * _math.log(_p_new_v / _p_old) if _p_new_v != _p_old else 0.0
-                _reanchor_term = 0.0   # c_new × ln(p_new/t_new) = c_new × ln(1) = 0 (re-center)
-                _b_calc        = _b_old + _shannon_term - _reanchor_term
-
-                _formula_line = (
-                    f"{_b_old:+.2f} += "
-                    f"({_c_old:,.0f} × ln({_p_new_v:.2f}/{_p_old:.2f})) − "
-                    f"({_c_new:,.0f} × ln({_p_new_v:.2f}/{_p_new_v:.2f}))"
-                    f"  |  c = {_c_new:,.0f} , t = {_p_new_v:.2f} , b = {_b_calc:.2f}"
-                )
-                _note = "" if _p_new_v != _p_old else "  · ราคาไม่เปลี่ยน — Shannon = $0"
-
-                st.markdown(
-                    f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
-                    f"padding:10px 14px;margin:6px 0 10px;font-family:monospace;font-size:13px;color:#94a3b8'>"
-                    f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
-                    f"<span style='color:#fbbf24;font-weight:600'>{_formula_line}</span>"
-                    f"{_note}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-
+            r2c1, r2c2, r2c3 = st.columns(3)
             new_c_after = r2c1.number_input("fix_c (after)",
                 value=float(rd["c_after"]),  step=100.0, format="%.0f", key="edit_c_after",
                 help=f"Before: ${rd['c_before']:,.0f}")
@@ -487,6 +456,34 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
             d1.markdown(_delta_badge(rd["c_before"], new_c_after, ",.0f"), unsafe_allow_html=True)
             d2.markdown(_delta_badge(rd["p_old"],    new_p_new,   ",.2f"), unsafe_allow_html=True)
             d3.markdown(_delta_badge(rd["b_before"], new_b_after, ",.2f"), unsafe_allow_html=True)
+
+            # ── 📐 Baseline Formula (live — อ่านจาก widget ที่ user แก้ไขแล้ว) ──
+            import math as _math
+            _b_old   = float(rd.get("b_before", 0.0))
+            _c_old   = float(rd.get("c_before", 0.0))
+            _p_old   = float(rd.get("p_old",    0.0))
+            # ใช้ค่าจาก widget (new_*) เพื่อสะท้อนการแก้ไขของ user
+            _c_new_w = float(new_c_after)
+            _p_new_w = float(new_p_new)
+            if _p_old > 0 and _p_new_w > 0 and _c_old > 0:
+                _sh_term  = _c_old * _math.log(_p_new_w / _p_old) if _p_new_w != _p_old else 0.0
+                _b_calc   = _b_old + _sh_term  # reanchor term = c_new × ln(1) = 0
+                _note_sfx = "" if _p_new_w != _p_old else "  · ราคาไม่เปลี่ยน — Shannon = $0"
+                _fline = (
+                    f"{_b_old:+.2f} += "
+                    f"({_c_old:,.0f} × ln({_p_new_w:.2f}/{_p_old:.2f})) − "
+                    f"({_c_new_w:,.0f} × ln({_p_new_w:.2f}/{_p_new_w:.2f}))"
+                    f"  |  c = {_c_new_w:,.0f} , t = {_p_new_w:.2f} , b = {_b_calc:.2f}"
+                )
+                st.markdown(
+                    f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
+                    f"padding:10px 14px;margin:10px 0 4px;font-family:monospace;"
+                    f"font-size:13px;color:#94a3b8'>"
+                    f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
+                    f"<span style='color:#fbbf24;font-weight:600'>{_fline}</span>"
+                    f"{_note_sfx}</div>",
+                    unsafe_allow_html=True,
+                )
 
         btn_col, cnl_col = st.columns([4, 1])
         with btn_col:
