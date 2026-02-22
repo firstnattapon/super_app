@@ -248,8 +248,8 @@ def _m(label: str, value: str, col, neg_red: bool = False, is_cost: bool = False
 
     col.markdown(
         f"<div style='line-height:1.2'>"
-        f"<div style='font-size:10px;color:#64748b;white-space:nowrap'>{label}</div>"
-        f"<div style='font-size:15px;font-weight:700;color:{color};white-space:nowrap'>{value}</div>"
+        f"<div style='font-size:12px;color:#64748b;white-space:nowrap'>{label}</div>"
+        f"<div style='font-size:18px;font-weight:700;color:{color};white-space:nowrap'>{value}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
