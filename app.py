@@ -1,3 +1,4 @@
+import math
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -281,8 +282,7 @@ def _render_engine_metrics(data: dict, tickers_list: list,
     ev_reserve    = data.get("global_ev_reserve", 0.0)
     total_rounds  = sum(len(t.get("rounds", [])) for t in tickers_list)
     total_fix_c   = sum(float(t.get("current_state", {}).get("fix_c", 0))         for t in tickers_list)
-    total_net_pnl = sum(float(t.get("current_state", {}).get("net_pnl", 0))       for t in tickers_list)
-    total_ev_burn = sum(float(t.get("current_state", {}).get("cumulative_ev", 0)) for t in tickers_list)
+    total_net_pnl = pool_cf + ev_reserve  # Treasury Net = Pool CF + EV Reserve (realized)
 
     # ── Active ticker ──────────────────────────────────────────────────
     state      = active_t_data.get("current_state", {}) if active_t_data else {}
@@ -441,7 +441,6 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
             d3.markdown(_delta_badge(rd["b_before"], new_b_after, ",.2f"), unsafe_allow_html=True)
 
             # ── 📐 Baseline Formula (live — อ่านจาก widget ที่ user แก้ไขแล้ว) ──
-            import math as _math
             _b_old   = float(rd.get("b_before", 0.0))
             _c_old   = float(rd.get("c_before", 0.0))
             _p_old   = float(rd.get("p_old",    0.0))
@@ -449,7 +448,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
             _c_new_w = float(new_c_after)
             _p_new_w = float(new_p_new)
             if _p_old > 0 and _p_new_w > 0 and _c_old > 0:
-                _sh_term  = _c_old * _math.log(_p_new_w / _p_old) if _p_new_w != _p_old else 0.0
+                _sh_term  = _c_old * math.log(_p_new_w / _p_old) if _p_new_w != _p_old else 0.0
                 _b_calc   = _b_old + _sh_term  # reanchor term = c_new × ln(1) = 0
                 _note_sfx = "" if _p_new_w != _p_old else "  · ราคาไม่เปลี่ยน — Shannon = $0"
                 _fline = (
