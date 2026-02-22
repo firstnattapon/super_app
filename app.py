@@ -563,82 +563,94 @@ def _render_pool_cf_section(data: dict):
 
 
 def _render_deployment_section(data: dict, tickers_list: list):
+    """Deploy Pool CF → Ticker Baseline (single action, no dead UI)."""
     if not tickers_list:
         return
-        
-    with st.expander("🔍 Preview Deployment", expanded=False):
-        deploy_ticker_options = [d.get("ticker", "???") for d in tickers_list]
-        deploy_ticker = st.selectbox("Select Ticker", deploy_ticker_options, key="deploy_ticker")
-        d_idx = deploy_ticker_options.index(deploy_ticker)
+
+    pool_cf = data.get("global_pool_cf", 0.0)
+    deploy_ticker_options = [d.get("ticker", "???") for d in tickers_list]
+
+    with st.expander("🚀 Deploy to Baseline", expanded=True):
+        # ── Context metrics ──────────────────────────────────────────
+        sel_key = "deploy_ticker"
+        deploy_ticker = st.selectbox("Ticker", deploy_ticker_options, key=sel_key)
+        d_idx         = deploy_ticker_options.index(deploy_ticker)
         t_data_deploy = tickers_list[d_idx]
-        
-        cur_state = t_data_deploy.get("current_state", {})
-        cur_c = cur_state.get("fix_c", 0)
-        cur_t = cur_state.get("price", 0)
-        cur_b = cur_state.get("baseline", 0)
-        cur_ev_debt = cur_state.get("cumulative_ev", 0.0)
-        pool_cf = data.get("global_pool_cf", 0.0)
-        
-        rounds = t_data_deploy.get("rounds", [{}])
-        last_round = rounds[-1] if rounds else {}
-        cur_sigma = last_round.get("sigma", 0.5)
-        cur_hr = last_round.get("hedge_ratio", 2.0)
-    
-        with st.form("deploy_round_form", clear_on_submit=False):
-            d1, d2 = st.columns(2)
-            with d1: 
-                action_type = st.selectbox("Objective", ["📈 Scale Up", "🛡️ Buy Puts", "🎯 Buy Calls", "⏳ Pay Ev"])
-            with d2: 
-                d_amt = st.number_input("Amount ($) [Pool Funding]", min_value=0.0, max_value=float(pool_cf) if pool_cf > 0 else 0.0, value=0.0, step=100.0)
-                
-            manual_new_c = st.number_input("Target fix_c (Optional Override)", min_value=0.0, value=0.0, step=100.0)
-            d_note = st.text_input("Note", value="")
-            submitted_deploy = st.form_submit_button("🔍 Preview Deployment")
-    
-        if submitted_deploy and d_amt > 0:
-            mock_scale_up, mock_new_c = (manual_new_c - cur_c, manual_new_c) if manual_new_c > cur_c else (d_amt, cur_c + d_amt)
-            mock_ev_change = -d_amt if "Pay Ev" in action_type else 0.0
-            
-            injection_round = {
-                "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), 
-                "action": "Injection", "p_old": cur_t, "p_new": cur_t, 
-                "c_before": cur_c, "c_after": mock_new_c,
-                "shannon_profit": 0.0, "harvest_profit": 0.0, "hedge_cost": 0.0,
-                "surplus": mock_scale_up if "Scale Up" in action_type else -d_amt, 
-                "scale_up": mock_scale_up if "Scale Up" in action_type else 0.0, 
-                "b_before": cur_b, "b_after": cur_b, 
-                "note": f"[{action_type.split()[1]}] {d_note}",
-                "hedge_ratio": cur_hr, "sigma": cur_sigma, "ev_change": mock_ev_change
-            }
-            st.session_state["_pending_injection"] = injection_round
-            st.session_state["_pending_injection_idx"] = d_idx
-            st.session_state["_pending_injection_amt"] = d_amt
-            st.session_state["_pending_injection_type"] = action_type
-    
-        if "_pending_injection" in st.session_state and st.session_state.get("_pending_injection_idx") == d_idx:
-            p_inj = st.session_state["_pending_injection"]
-            p_type = st.session_state.get("_pending_injection_type", "")
-            
-            dc1, dc2, dc3 = st.columns(3)
-            dc1.metric("fix_c Change", f"${p_inj['c_before']:,.0f} → ${p_inj['c_after']:,.0f}")
-            dc2.metric("Pool Deduction", f"-${st.session_state['_pending_injection_amt']:,.2f}")
-            
-            if "Pay Ev" in p_type:
-                dc3.metric("Burn Rate (Ev)", f"${cur_ev_debt:,.2f} → ${max(0, cur_ev_debt - st.session_state['_pending_injection_amt']):,.2f}")
-            
-            if st.button("🚀 Confirm Deployment", type="primary"):
-                amt = st.session_state["_pending_injection_amt"]
-                if data["global_pool_cf"] >= amt:
-                    data["global_pool_cf"] -= amt
-                    if "Pay Ev" in p_type:
-                        t_data_deploy["current_state"]["cumulative_ev"] = max(0.0, cur_ev_debt - amt)
-                    
-                    log_treasury_event(data, "Deploy", -amt, f"Deployed to {deploy_ticker} ({p_type})")
-                    commit_round(data, d_idx, p_inj)
-                    
-                    del st.session_state["_pending_injection"]
-                    st.success(f"✅ Complete: {st.session_state['_pending_injection_type']} ${amt:,.2f}!")
-                    st.rerun()
+        cur_state     = t_data_deploy.get("current_state", {})
+        cur_b         = float(cur_state.get("baseline", 0.0))
+        cur_t         = float(cur_state.get("price",    0.0))
+        cur_c         = float(cur_state.get("fix_c",    0.0))
+        rounds        = t_data_deploy.get("rounds", [])
+        last_round    = rounds[-1] if rounds else {}
+        cur_sigma     = float(last_round.get("sigma",        0.5))
+        cur_hr        = float(last_round.get("hedge_ratio",  2.0))
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🎱 Pool CF",    f"${pool_cf:,.2f}")
+        m2.metric("📐 Baseline",   f"${cur_b:,.2f}", f"{deploy_ticker}")
+        m3.metric("fix_c",         f"${cur_c:,.0f}")
+
+        st.divider()
+
+        # ── Form ────────────────────────────────────────────────────
+        with st.form("deploy_to_baseline_form", clear_on_submit=True):
+            f1, f2 = st.columns([2, 1])
+            with f1:
+                d_amt  = st.number_input(
+                    "Amount ($)",
+                    min_value=0.0,
+                    max_value=float(pool_cf) if pool_cf > 0 else 0.0,
+                    value=0.0, step=100.0
+                )
+                d_note = st.text_input("Note (optional)", value="")
+            with f2:
+                st.write("")
+                st.write("")
+                st.write("")
+                submitted = st.form_submit_button(
+                    "🚀 Deploy to Baseline", type="primary", use_container_width=True
+                )
+
+        # ── Preview before commit ────────────────────────────────────
+        if submitted and d_amt > 0:
+            if d_amt > pool_cf:
+                st.error(f"❌ Pool CF ไม่พอ (มี ${pool_cf:,.2f})")
+            else:
+                new_b = cur_b + d_amt
+                new_pool = pool_cf - d_amt
+
+                st.markdown("**📊 Preview Deploy**")
+                pc1, pc2, pc3 = st.columns(3)
+                pc1.metric("Pool CF",  f"${pool_cf:,.2f}",  f"−${d_amt:,.2f}", delta_color="inverse")
+                pc2.metric("Baseline", f"${cur_b:,.2f}",    f"+${d_amt:,.2f}", delta_color="normal")
+                pc3.metric("Baseline after", f"${new_b:,.2f}")
+
+                # Build dummy round for history
+                deploy_round = {
+                    "date":            pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+                    "action":          "Deploy to Baseline",
+                    "p_old":           cur_t, "p_new": cur_t,
+                    "c_before":        cur_c, "c_after": cur_c,
+                    "shannon_profit":  0.0, "harvest_profit": 0.0,
+                    "hedge_cost":      0.0, "surplus": 0.0, "scale_up": 0.0,
+                    "b_before":        cur_b, "b_after": new_b,
+                    "note":            f"Deploy from Pool CF → Baseline{(' | ' + d_note) if d_note else ''}",
+                    "hedge_ratio":     cur_hr, "sigma": cur_sigma, "ev_change": 0.0,
+                }
+
+                # ── Commit ──────────────────────────────────────────
+                data["global_pool_cf"]                      -= d_amt
+                t_data_deploy["current_state"]["baseline"]  = new_b
+                if "rounds" not in t_data_deploy:
+                    t_data_deploy["rounds"] = []
+                t_data_deploy["rounds"].append(deploy_round)
+                log_treasury_event(
+                    data, "Deploy", -d_amt,
+                    f"Deploy to {deploy_ticker} Baseline{(' | ' + d_note) if d_note else ''}"
+                )
+                save_trading_data(data)
+                st.success(f"✅ Deployed ${d_amt:,.2f} → {deploy_ticker} Baseline = ${new_b:,.2f}")
+                st.rerun()
 
 def _render_ev_leaps_section(data: dict):
     pool_cf = data.get("global_pool_cf", 0.0)
