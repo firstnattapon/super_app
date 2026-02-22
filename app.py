@@ -10,8 +10,45 @@ st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
     run_chain_round, commit_round,
-    build_portfolio_df, repair_baseline
 )
+
+# Graceful import — ฟังก์ชันเหล่านี้อาจไม่มีใน flywheels.py เก่า
+try:
+    from flywheels import build_portfolio_df
+except ImportError:
+    import pandas as _pd
+    def build_portfolio_df(data):
+        rows = []
+        for item in (data if isinstance(data, list) else []):
+            state = item.get("current_state", {})
+            rows.append({
+                "Ticker":       item.get("ticker", "???"),
+                "Price (t)":    float(state.get("price",        0.0)),
+                "Fix_C":        float(state.get("fix_c",         0.0)),
+                "Baseline (b)": float(state.get("baseline",      0.0)),
+                "Ev (Extrinsic)": float(state.get("cumulative_ev", 0.0)),
+                "Lock P&L":     float(state.get("lock_pnl",      0.0)),
+                "Surplus IV":   float(state.get("surplus_iv",    0.0)),
+                "Net":          float(state.get("net_pnl",       0.0)),
+            })
+        return _pd.DataFrame(rows)
+
+try:
+    from flywheels import repair_baseline
+except ImportError:
+    def repair_baseline(data):
+        from flywheels import save_trading_data as _save
+        for ticker in data.get("tickers", []):
+            rounds = ticker.get("rounds", [])
+            if rounds:
+                last  = rounds[-1]
+                state = ticker.get("current_state", {})
+                state["baseline"] = float(last.get("b_after", state.get("baseline", 0.0)))
+                state["price"]    = float(last.get("p_new",   state.get("price",    0.0)))
+                state["fix_c"]    = float(last.get("c_after", state.get("fix_c",    0.0)))
+                ticker["current_state"] = state
+        _save(data)
+        return data
 
 # ============================================================
 # HELPER: Treasury Logging
