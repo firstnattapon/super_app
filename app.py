@@ -199,10 +199,10 @@ def _render_engine_tab(data: dict):
         _render_ticker_watchlist(tickers_list, active_idx)
 
     with z_center:
-        _render_chain_engine_center(data, tickers_list, active_ticker, active_t_data, active_idx)
+        _render_center_panels(data, tickers_list, active_ticker, active_t_data)
 
     with z_right:
-        _render_right_panels(data, tickers_list, active_ticker, active_t_data)
+        _render_chain_engine_center(data, tickers_list, active_ticker, active_t_data, active_idx)
 
 
 def _chip_label(t_data: dict) -> str:
@@ -420,11 +420,11 @@ def _delta_badge(before: float, after: float, fmt: str = ",.0f") -> str:
     )
 
 
-# ── ZONE RIGHT: Tabbed Panels ─────────────────────────────────────────
-def _render_right_panels(data: dict, tickers_list: list,
-                          active_ticker: str, active_t_data: dict):
-    tab_hist, tab_pool, tab_deploy, tab_treasury = st.tabs([
-        "📜 History", "🎱 Pool CF", "🚀 Deploy", "🏛️ Treasury"
+# ── ZONE CENTER: Tabbed Panels ────────────────────────────────────────
+def _render_center_panels(data: dict, tickers_list: list,
+                           active_ticker: str, active_t_data: dict):
+    tab_hist, tab_treasury, tab_pool, tab_deploy = st.tabs([
+        "📜 History", "🏛️ Treasury", "🎱 Pool CF", "🚀 Deploy"
     ])
 
     with tab_hist:
@@ -433,15 +433,15 @@ def _render_right_panels(data: dict, tickers_list: list,
         else:
             st.info("เลือก Ticker ที่ Watchlist ก่อน")
 
+    with tab_treasury:
+        _render_treasury_log(data, filter_ticker=active_ticker)
+
     with tab_pool:
         _render_pool_cf_section(data)
 
     with tab_deploy:
         _render_deployment_section(data, tickers_list)
         _render_ev_leaps_section(data)
-
-    with tab_treasury:
-        _render_treasury_log(data, filter_ticker=active_ticker)
 
 def _render_pool_cf_section(data: dict):
     with st.expander('🎱 Pool CF & Allocation', expanded=False):
