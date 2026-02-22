@@ -337,18 +337,20 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
         with st.container(border=True):
             st.markdown("**📊 Preview Result** — แก้ไขได้ก่อน Commit")
 
-            r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-            new_shannon = r1c1.number_input("Shannon Profit",
+            # ── ROW 1: P&L ─────────────────────────────────────────────
+            r1c1, r1c2, r1c3 = st.columns(3)
+            new_shannon = r1c1.number_input("💰 Shannon Profit",
                 value=float(rd["shannon_profit"]), step=10.0, format="%.2f", key="edit_shannon")
-            new_hedge   = r1c2.number_input("Hedge Cost",
+            new_hedge   = r1c2.number_input("🛡️ Hedge Cost",
                 value=float(rd["hedge_cost"]),     step=10.0, format="%.2f", key="edit_hedge")
-            new_surplus = r1c3.number_input("Surplus",
+            new_surplus = r1c3.number_input("✨ Surplus",
                 value=float(rd["surplus"]),        step=10.0, format="%.2f", key="edit_surplus")
-            scale_val   = float(rd.get("scale_up", max(0.0, float(rd.get("surplus", 0.0)))))
-            sc_color    = "#22c55e" if scale_val > 0 else ("#ef4444" if scale_val < 0 else "#94a3b8")
-            r1c4.markdown(
-                f"<div style='padding-top:8px;font-size:13px;color:#94a3b8'>Scale Up<br>"
-                f"<span style='color:{sc_color};font-weight:700;font-size:16px'>"
+
+            scale_val = float(rd.get("scale_up", max(0.0, float(rd.get("surplus", 0.0)))))
+            sc_color  = "#22c55e" if scale_val > 0 else ("#ef4444" if scale_val < 0 else "#94a3b8")
+            st.markdown(
+                f"<div style='text-align:center;padding:4px 0 10px;font-size:13px;color:#94a3b8'>"
+                f"🚀 Scale Up &nbsp;<span style='color:{sc_color};font-weight:700;font-size:20px'>"
                 f"+${scale_val:,.2f}</span></div>",
                 unsafe_allow_html=True,
             )
