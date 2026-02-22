@@ -55,15 +55,12 @@ def main():
 
     data = load_trading_data()
 
-    tab1, tab2, tab4, tab5 = st.tabs([
-        "⚡ Active Dashboard",
+    tab2, tab4, tab5 = st.tabs([
         "⚡ Engine & History",
         "Payoff Profile 🔗 Run Chain Round",
         "➕ Manage Data"
     ])
 
-    with tab1:
-        _render_active_dashboard(data)
     with tab2:
         _render_engine_tab(data)
     with tab4:
