@@ -215,7 +215,7 @@ def _chip_label(t_data: dict) -> str:
     return f"{dot} {ticker}  ${price:.2f}"
 
 
-# ── TOP METRICS BAR: Left = Global, Right = Per-Ticker ────────────────
+# ── TOP METRICS BAR: Left = Global (40%), Right = Per-Ticker (60%) ───
 def _fmt(v: float) -> str:
     """Integer format without symbols or commas.
     Shows full value: -13500 instead of -$13,500.00
@@ -223,46 +223,77 @@ def _fmt(v: float) -> str:
     return f"{int(round(v))}"
 
 
+def _calc_withdraw_b(t_data: dict) -> float:
+    """Withdraw_b = SUM of all Extract Baseline amounts for a ticker.
+    Derived from rounds where action == 'Extract Baseline' using b_before - b_after.
+    """
+    return sum(
+        float(r.get("b_before", 0)) - float(r.get("b_after", 0))
+        for r in t_data.get("rounds", [])
+        if r.get("action") == "Extract Baseline"
+        and float(r.get("b_before", 0)) > float(r.get("b_after", 0))
+    )
+
+
 def _render_engine_metrics(data: dict, tickers_list: list,
                             active_ticker: str, active_t_data: dict):
-    pool_cf      = data.get("global_pool_cf", 0.0)
-    ev_reserve   = data.get("global_ev_reserve", 0.0)
-    total_rounds = sum(len(t.get("rounds", [])) for t in tickers_list)
+    # ── Global aggregates ──────────────────────────────────────────────
+    pool_cf       = data.get("global_pool_cf", 0.0)
+    ev_reserve    = data.get("global_ev_reserve", 0.0)
+    total_rounds  = sum(len(t.get("rounds", [])) for t in tickers_list)
+    total_fix_c   = sum(float(t.get("current_state", {}).get("fix_c", 0))        for t in tickers_list)
+    total_net_pnl = sum(float(t.get("current_state", {}).get("net_pnl", 0))      for t in tickers_list)
+    total_ev_burn = sum(float(t.get("current_state", {}).get("cumulative_ev", 0)) for t in tickers_list)
 
+    # ── Active ticker ──────────────────────────────────────────────────
     state      = active_t_data.get("current_state", {}) if active_t_data else {}
     sel_net    = float(state.get("net_pnl", 0))
     sel_rounds = len(active_t_data.get("rounds", [])) if active_t_data else 0
+    withdraw_b = _calc_withdraw_b(active_t_data) if active_t_data else 0.0
 
     with st.container(border=True):
-        col_global, col_div, col_ticker = st.columns([3, 0.1, 7])
+        # True 40 / 60 split (divider col is negligible)
+        col_global, col_div, col_ticker = st.columns([4, 0.05, 6])
 
         with col_global:
             st.caption("🌐 Global")
-            g1, g2, g3, g4 = st.columns(4)
-            g1.metric("🎱 Pool CF",   _fmt(pool_cf))
-            g2.metric("🛡️ EV LEAPS", _fmt(ev_reserve))
-            g3.metric("Tickers",      str(len(tickers_list)))
-            g4.metric("Total Rounds", str(total_rounds))
+            # Row 1 — Treasury
+            g1, g2 = st.columns(2)
+            g1.metric("🎱 Pool CF",     _fmt(pool_cf))
+            g2.metric("🛡️ EV Reserve",  _fmt(ev_reserve))
+            # Row 2 — Portfolio totals
+            g3, g4, g5 = st.columns(3)
+            g3.metric("⚡ Fix_C",        _fmt(total_fix_c))
+            g4.metric("💰 Net",
+                      _fmt(total_net_pnl),
+                      delta_color="normal" if total_net_pnl >= 0 else "inverse")
+            g5.metric("🔥 Ev Burn",      _fmt(total_ev_burn),
+                      delta_color="inverse")
+            st.caption(f"📊 {len(tickers_list)} Tickers · {total_rounds} Rounds")
 
         with col_div:
             st.markdown(
-                "<div style='border-left:1px solid #334155;height:80px;margin-top:8px'></div>",
+                "<div style='border-left:1px solid #334155;height:120px;margin-top:4px'></div>",
                 unsafe_allow_html=True
             )
 
         with col_ticker:
             if active_t_data:
                 st.caption(f"📌 {active_ticker}")
-                t1, t2, t3, t4, t5, t6, t7 = st.columns(7)
-                t1.metric("Price",        _fmt(float(state.get("price", 0))))
-                t2.metric("fix_c",        _fmt(float(state.get("fix_c", 0))))
-                t3.metric("Baseline",     _fmt(float(state.get("baseline", 0))))
-                t4.metric("Withdraw_b",   _fmt(float(state.get("withdraw_b", 0))))
-                t5.metric("Ev Burn 🔥",  _fmt(float(state.get("cumulative_ev", 0))),
+                # Row 1 — Price / Structure
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Price",       _fmt(float(state.get("price", 0))))
+                t2.metric("fix_c",       _fmt(float(state.get("fix_c", 0))))
+                t3.metric("Baseline",    _fmt(float(state.get("baseline", 0))))
+                t4.metric("Withdraw_b",  _fmt(withdraw_b),
+                          help="SUM ของ Extract Baseline ทั้งหมดที่ดึงออกไป (b_before − b_after)")
+                # Row 2 — Cost / Result
+                t5, t6, t7 = st.columns(3)
+                t5.metric("🔥 Ev Burn",  _fmt(float(state.get("cumulative_ev", 0))),
                           delta_color="inverse")
-                t6.metric("Net P&L",      _fmt(sel_net),
+                t6.metric("Net P&L",     _fmt(sel_net),
                           delta_color="normal" if sel_net >= 0 else "inverse")
-                t7.metric("Rounds",       str(sel_rounds))
+                t7.metric("Rounds",      str(sel_rounds))
             else:
                 st.caption("📌 ยังไม่มี Ticker")
 
