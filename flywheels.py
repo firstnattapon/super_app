@@ -195,10 +195,11 @@ def commit_round(data: Dict[str, Any], ticker_idx: int, round_data: Dict[str, An
     hedge_cost = float(round_data.get("hedge_cost", 0.0))
     ev_change = float(round_data.get("ev_change", hedge_cost))
     
+    # ✅ BUG-01 FIX: always read live fields from round_data, never from stale cur_state
     ticker["current_state"] = {
-        "price": float(round_data.get("p_new", 0.0)),
-        "fix_c": float(round_data.get("c_after", 0.0)),
-        "baseline": float(round_data.get("b_after", 0.0)),
+        "price":    float(round_data["p_new"]),
+        "fix_c":    float(round_data["c_after"]),
+        "baseline": float(round_data["b_after"]),
         "pool_cf_net": float(cur_state.get("pool_cf_net", 0.0)),
         "cumulative_ev": max(0.0, old_ev + ev_change),
         "surplus_iv": float(cur_state.get("surplus_iv", 0.0)),
@@ -273,7 +274,24 @@ def allocate_pool_funds(data: Dict[str, Any], ticker_idx: int, amount: float, ac
     return data, True
 
 
-def build_portfolio_df(data: List[Dict[str, Any]]) -> pd.DataFrame:
+def repair_baseline(data: Dict[str, Any]) -> Dict[str, Any]:
+    """One-time patch: rebuild current_state from rounds[-1] for every ticker.
+    Safe to call multiple times — idempotent.
+    """
+    for ticker in data.get("tickers", []):
+        rounds = ticker.get("rounds", [])
+        if rounds:
+            last = rounds[-1]
+            state = ticker.get("current_state", {})
+            state["baseline"] = float(last.get("b_after", state.get("baseline", 0.0)))
+            state["price"]    = float(last.get("p_new",   state.get("price",    0.0)))
+            state["fix_c"]    = float(last.get("c_after", state.get("fix_c",    0.0)))
+            ticker["current_state"] = state
+    save_trading_data(data)
+    return data
+
+
+
     """Build a pandas DataFrame summarizing all tickers."""
     rows = []
     for item in data:
