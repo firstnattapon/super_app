@@ -167,7 +167,6 @@ def _render_engine_tab(data: dict):
     ticker_names = [t.get("ticker", "???") for t in tickers_list]
 
     # ── Resolve active ticker ONCE at top — single source of truth ──────
-    # Read from watchlist radio (index-based) if available, else fallback
     if ticker_names:
         labels = [_chip_label(t) for t in tickers_list]
         radio_val = st.session_state.get("ticker_watchlist_radio")
@@ -217,8 +216,8 @@ def _chip_label(t_data: dict) -> str:
 
 # ── TOP METRICS BAR: Left = Global (40%), Right = Per-Ticker (60%) ───
 def _fmt(v: float) -> str:
-    """1-decimal format, compact. e.g. -13461.0"""
-    return f"{v:,.1f}"
+    """2-decimal format, compact. e.g. -13,461.00"""
+    return f"{v:,.2f}"
 
 
 def _calc_withdraw_b(t_data: dict) -> float:
@@ -546,7 +545,6 @@ def _render_pool_cf_section(data: dict):
 
         st.divider()
         st.markdown("##### 📥 Extract Baseline to Pool CF")
-        # Filter tickers that actually have a positive baseline
         eligible_tickers = [t for t in get_tickers(data) if t.get("current_state", {}).get("baseline", 0) > 0]
         
         if eligible_tickers:
@@ -554,7 +552,6 @@ def _render_pool_cf_section(data: dict):
                 hc1, hc2 = st.columns([2, 1])
                 with hc1:
                     ext_ticker_name = st.selectbox("Select Ticker", options=[t.get("ticker") for t in eligible_tickers], key="extract_ticker")
-                    # Find the selected ticker object to get its max baseline
                     selected_t_obj = next((t for t in eligible_tickers if t.get("ticker") == ext_ticker_name), None)
                     max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0)) if selected_t_obj else 0.0
                     
@@ -567,17 +564,13 @@ def _render_pool_cf_section(data: dict):
                     btn_extract = st.form_submit_button("📥 Extract to Pool CF", type="primary")
                     
                 if btn_extract and ext_amount > 0 and selected_t_obj:
-                    # 1. Update Ticker state
                     current_baseline = selected_t_obj["current_state"]["baseline"]
                     selected_t_obj["current_state"]["baseline"] -= ext_amount
                     
-                    # 2. Add to Pool CF
                     data["global_pool_cf"] = data.get("global_pool_cf", 0.0) + ext_amount
                     
-                    # 3. Log event
                     log_treasury_event(data, "Baseline Harvest", ext_amount, f"[Ticker: {ext_ticker_name}]")
                     
-                    # 4. Record dummy round to preserve history of baseline change
                     cur_state = selected_t_obj["current_state"]
                     dummy_round = {
                         "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), 
@@ -602,7 +595,6 @@ def _render_pool_cf_section(data: dict):
                         selected_t_obj["rounds"] = []
                     selected_t_obj["rounds"].append(dummy_round)
 
-                    # 5. Save & Rerun
                     save_trading_data(data)
                     st.success(f"✅ Extracted ${ext_amount:,.2f} from {ext_ticker_name} Baseline to Pool CF")
                     st.rerun()
@@ -619,7 +611,6 @@ def _render_deployment_section(data: dict, tickers_list: list):
     deploy_ticker_options = [d.get("ticker", "???") for d in tickers_list]
 
     with st.expander("🚀 Deploy to Baseline", expanded=True):
-        # ── Context metrics ──────────────────────────────────────────
         sel_key = "deploy_ticker"
         deploy_ticker = st.selectbox("Ticker", deploy_ticker_options, key=sel_key)
         d_idx         = deploy_ticker_options.index(deploy_ticker)
@@ -640,7 +631,6 @@ def _render_deployment_section(data: dict, tickers_list: list):
 
         st.divider()
 
-        # ── Form ────────────────────────────────────────────────────
         with st.form("deploy_to_baseline_form", clear_on_submit=True):
             f1, f2 = st.columns([2, 1])
             with f1:
@@ -659,7 +649,6 @@ def _render_deployment_section(data: dict, tickers_list: list):
                     "🚀 Deploy to Baseline", type="primary", use_container_width=True
                 )
 
-        # ── Preview before commit ────────────────────────────────────
         if submitted and d_amt > 0:
             if d_amt > pool_cf:
                 st.error(f"❌ Pool CF ไม่พอ (มี ${pool_cf:,.2f})")
@@ -673,7 +662,6 @@ def _render_deployment_section(data: dict, tickers_list: list):
                 pc2.metric("Baseline", f"${cur_b:,.2f}",    f"+${d_amt:,.2f}", delta_color="normal")
                 pc3.metric("Baseline after", f"${new_b:,.2f}")
 
-                # Build dummy round for history
                 deploy_round = {
                     "date":            pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
                     "action":          "Deploy to Baseline",
@@ -686,7 +674,6 @@ def _render_deployment_section(data: dict, tickers_list: list):
                     "hedge_ratio":     cur_hr, "sigma": cur_sigma, "ev_change": 0.0,
                 }
 
-                # ── Commit ──────────────────────────────────────────
                 data["global_pool_cf"]                      -= d_amt
                 t_data_deploy["current_state"]["baseline"]  = new_b
                 if "rounds" not in t_data_deploy:
@@ -756,9 +743,6 @@ def _render_treasury_log(data: dict, filter_ticker: str = ""):
     })
     options = ["🌐 ทั้งหมด"] + all_tickers
 
-    # ── Force sync with active Watchlist ticker ──────────────────────────
-    # st.selectbox ignores `index` after first render when key is set.
-    # Solution: detect ticker change → overwrite session_state key directly.
     target = filter_ticker if filter_ticker in options else "🌐 ทั้งหมด"
     if st.session_state.get("_treasury_last_ticker") != filter_ticker:
         st.session_state["treasury_filter_sel"] = target
@@ -785,14 +769,12 @@ def _render_treasury_log(data: dict, filter_ticker: str = ""):
     st.caption(f"แสดง {len(tbl)} รายการ" +
                (f"  (filter: {sel})" if sel != "🌐 ทั้งหมด" else ""))
                
-    # --- Modification applied here ---
     df = pd.DataFrame(tbl)[::-1]
     
     if sel != "🌐 ทั้งหมด":
         df = df.drop(columns=["Pool CF", "EV Res"], errors="ignore")
         
     st.dataframe(df, use_container_width=True, hide_index=True)
-    # ---------------------------------
 
 def _render_consolidated_history(t_data: dict):
     st.subheader(f"📜 {t_data.get('ticker','???')} — History")
@@ -843,7 +825,6 @@ def _render_payoff_profile_tab(data: dict):
     _calculate_and_plot_payoff(def_p, def_c, controls, data)
 
 def _render_payoff_controls(def_p: float, def_c: float) -> dict:
-    # Ensure def_p and def_c are within safe bounds for Streamlit UI
     safe_p = float(max(0.01, def_p))
     safe_c = float(max(1.0, def_c))
 
@@ -912,7 +893,6 @@ def _render_payoff_controls(def_p: float, def_c: float) -> dict:
     return controls
 
 def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict = None):
-    # Retrieve control values
     x0_1, constant1, b1, delta1 = req["x0_1"], req["constant1"], req["b1"], req["delta1"]
     x0_2, constant2, b2, delta2 = req["x0_2"], req["constant2"], req["b2"], req["delta2"]
     anchorY6, refConst = req["anchorY6"], req["refConst"]
@@ -922,7 +902,6 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict
     long_shares, long_entry = req["long_shares"], req["long_entry"]
     short_shares, short_entry = req["short_shares"], req["short_entry"]
 
-    # Mathematics Engine (numpy optimized)
     x_min = float(max(0.01, def_p * 0.1))
     x_max = float(max(x_min + 0.1, def_p * 2.5))
     prices = np.linspace(x_min, x_max, 300)
@@ -961,7 +940,6 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict
     y3_delta2 = np.sum(components_d2, axis=0) if components_d2 else np.zeros_like(prices)
     y_overlay_d2 = y3_delta2 - y6_ref_d2
 
-    # Plotly Visualization
     tabs_chart = st.tabs(["เปรียบเทียบทั้งหมด", "Net เท่านั้น", "Delta_Log_Overlay", "Capital Flow (Sankey) 🔗"])
 
     with tabs_chart[0]:
