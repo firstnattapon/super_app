@@ -10,7 +10,7 @@ st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
     run_chain_round, commit_round,
-    build_portfolio_df
+    build_portfolio_df, repair_baseline
 )
 
 # ============================================================
@@ -404,7 +404,38 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
 
             st.divider()
 
-            r2c1, r2c2, r2c3 = st.columns(3)
+            # ── 📐 Baseline Formula Display ────────────────────────────
+            import math as _math
+            _b_old   = float(rd["b_before"])
+            _c_old   = float(rd["c_before"])
+            _c_new   = float(rd["c_after"])
+            _p_old   = float(rd["p_old"])
+            _p_new_v = float(rd["p_new"])
+
+            if _p_old > 0 and _p_new_v > 0:
+                _shannon_term  = _c_old * _math.log(_p_new_v / _p_old) if _p_new_v != _p_old else 0.0
+                _reanchor_term = 0.0   # c_new × ln(p_new/t_new) = c_new × ln(1) = 0 (re-center)
+                _b_calc        = _b_old + _shannon_term - _reanchor_term
+
+                _formula_line = (
+                    f"{_b_old:+.2f} += "
+                    f"({_c_old:,.0f} × ln({_p_new_v:.2f}/{_p_old:.2f})) − "
+                    f"({_c_new:,.0f} × ln({_p_new_v:.2f}/{_p_new_v:.2f}))"
+                    f"  |  c = {_c_new:,.0f} , t = {_p_new_v:.2f} , b = {_b_calc:.2f}"
+                )
+                _note = "" if _p_new_v != _p_old else "  · ราคาไม่เปลี่ยน — Shannon = $0"
+
+                st.markdown(
+                    f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
+                    f"padding:10px 14px;margin:6px 0 10px;font-family:monospace;font-size:13px;color:#94a3b8'>"
+                    f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
+                    f"<span style='color:#fbbf24;font-weight:600'>{_formula_line}</span>"
+                    f"{_note}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+
             new_c_after = r2c1.number_input("fix_c (after)",
                 value=float(rd["c_after"]),  step=100.0, format="%.0f", key="edit_c_after",
                 help=f"Before: ${rd['c_before']:,.0f}")
@@ -1217,6 +1248,16 @@ def _render_manage_data(data: dict):
             data.update({"tickers": [], "global_pool_cf": 0.0, "global_ev_reserve": 0.0, "treasury_history": []})
             save_trading_data(data)
             st.warning("All data cleared!")
+            st.rerun()
+
+    with st.expander("🔧 Repair / Diagnostic Tools", expanded=False):
+        st.markdown(
+            "**Repair Baseline** — ซ่อมแซม `current_state.baseline / price / fix_c` ให้ตรงกับ `rounds[-1]`\n\n"
+            "ใช้กรณีที่ baseline แสดงค่าผิด (เช่น 0.0) ทั้งที่ rounds มีค่าถูกต้อง"
+        )
+        if st.button("🔧 Repair Baseline Data", key="btn_repair_baseline"):
+            repair_baseline(data)
+            st.success("✅ Repair สำเร็จ! ค่า baseline, price, fix_c ถูก sync จาก rounds[-1] แล้ว")
             st.rerun()
 
 if __name__ == "__main__":
