@@ -280,10 +280,10 @@ def _render_engine_metrics(data: dict, tickers_list: list,
 
         # ── Single row: all metrics ───────────────────────────────────
         # Global  = 5 cols  |  div  |  Ticker = 7 cols
-        (g1, g2, g3, g4, g5,
+        (g1, g2, g3, g4,
          div,
          t1, t2, t3, t4, t5, t6, t7) = st.columns(
-            [1.6, 1.6, 1.4, 1.4, 1.4,
+            [1.8, 1.8, 1.6, 1.6,
              0.05,
              1.3, 1.3, 1.3, 1.3, 1.3, 1.3, 0.8],
             gap="small"
@@ -294,7 +294,6 @@ def _render_engine_metrics(data: dict, tickers_list: list,
         _m("🛡️ EV Reserve", _fmt(ev_reserve),    g2, neg_red=True)
         _m("⚡ Fix_C",       _fmt(total_fix_c),   g3)
         _m("💰 Net",         _fmt(total_net_pnl), g4, neg_red=True)
-        _m("🔥 Ev Burn",     _fmt(total_ev_burn), g5, is_cost=True)
 
         # Divider
         div.markdown(
