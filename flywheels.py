@@ -56,14 +56,49 @@ _DATA_FILE: str = os.path.join(_DATA_DIR, "trading_data.json")
 _BACKUP_FILE: str = os.path.join(_DATA_DIR, "trading_data.backup.json")
 
 def load_trading_data() -> Dict[str, Any]:
-    """Load portfolio data, auto-migrating to V2 if needed."""
+    """Load portfolio data, auto-migrating to V2 and auto-repairing current_state if needed."""
     try:
         with open(_DATA_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         raw = []
     
-    return _migrate_data_if_needed(raw)
+    data = _migrate_data_if_needed(raw)
+    _auto_repair_current_state(data)   # ✅ silent fix every load
+    return data
+
+
+def _auto_repair_current_state(data: Dict[str, Any]) -> None:
+    """Auto-sync current_state fields from rounds[-1] when they diverge.
+    Only patches fields that are stale — preserves fields not tracked in rounds.
+    Does NOT save; caller decides whether to persist.
+    """
+    dirty = False
+    for ticker in data.get("tickers", []):
+        rounds = ticker.get("rounds", [])
+        if not rounds:
+            continue
+        last  = rounds[-1]
+        state = ticker.setdefault("current_state", {})
+        
+        # Only repair Chain Round entries (not Extract Baseline / Pool ops)
+        action = last.get("action", "")
+        if "Chain Round" not in action and "Chain Round" != action:
+            # Still sync price/fix_c/baseline from last round regardless of action type
+            pass
+
+        new_vals = {
+            "baseline": float(last.get("b_after", state.get("baseline", 0.0))),
+            "price":    float(last.get("p_new",   state.get("price",    0.0))),
+            "fix_c":    float(last.get("c_after",  state.get("fix_c",   0.0))),
+        }
+        for k, v in new_vals.items():
+            if abs(state.get(k, 0.0) - v) > 1e-9:
+                state[k] = v
+                dirty = True
+
+    if dirty:
+        save_trading_data(data)
 
 def save_trading_data(data: Dict[str, Any]) -> None:
     """Save portfolio data with auto-backup and atomic write pattern safely."""
