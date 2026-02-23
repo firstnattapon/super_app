@@ -455,18 +455,19 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
                 _note_sfx = "" if not _price_unchanged else "  · ราคาไม่เปลี่ยน — Shannon = $0"
 
                 # ── 📐 Baseline Formula ──────────────────────────────────────
-                _fline = (
+                _fline_eq  = (
                     f"{_b_old:+.2f} += "
                     f"({_c_old:,.0f} × ln({_p_new_w:.2f}/{_p_old:.2f})) − "
                     f"({_c_new_w:,.0f} × ln({_p_new_w:.2f}/{_p_new_w:.2f}))"
-                    f"  |  c = {_c_new_w:,.0f} , t = {_p_new_w:.2f} , b = {_b_calc:.2f}"
                 )
+                _fline_meta = f"c = {_c_new_w:,.0f} , t = {_p_new_w:.2f} , b = {_b_calc:.2f}"
                 st.markdown(
                     f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
                     f"padding:10px 14px;margin:10px 0 2px;font-family:monospace;"
                     f"font-size:13px;color:#94a3b8'>"
                     f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
-                    f"<span style='color:#fbbf24;font-weight:600'>{_fline}</span>"
+                    f"<span style='color:#fbbf24;font-weight:600'>{_fline_eq}</span><br/>"
+                    f"<span style='color:#94a3b8'>{_fline_meta}</span>"
                     f"{_note_sfx}</div>",
                     unsafe_allow_html=True,
                 )
