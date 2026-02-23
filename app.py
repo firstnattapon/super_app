@@ -448,9 +448,13 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
             _c_new_w = float(new_c_after)
             _p_new_w = float(new_p_new)
             if _p_old > 0 and _p_new_w > 0 and _c_old > 0:
+                # ── คำนวณครั้งเดียว — ใช้ร่วมทั้งสองสมการ ──────────────────
                 _sh_term  = _c_old * math.log(_p_new_w / _p_old) if _p_new_w != _p_old else 0.0
                 _b_calc   = _b_old + _sh_term  # reanchor term = c_new × ln(1) = 0
-                _note_sfx = "" if _p_new_w != _p_old else "  · ราคาไม่เปลี่ยน — Shannon = $0"
+                _price_unchanged = (_p_new_w == _p_old)
+                _note_sfx = "" if not _price_unchanged else "  · ราคาไม่เปลี่ยน — Shannon = $0"
+
+                # ── 📐 Baseline Formula ──────────────────────────────────────
                 _fline = (
                     f"{_b_old:+.2f} += "
                     f"({_c_old:,.0f} × ln({_p_new_w:.2f}/{_p_old:.2f})) − "
@@ -459,11 +463,29 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
                 )
                 st.markdown(
                     f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
-                    f"padding:10px 14px;margin:10px 0 4px;font-family:monospace;"
+                    f"padding:10px 14px;margin:10px 0 2px;font-family:monospace;"
                     f"font-size:13px;color:#94a3b8'>"
                     f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
                     f"<span style='color:#fbbf24;font-weight:600'>{_fline}</span>"
                     f"{_note_sfx}</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # ── 💰 Shannon Baseline Formula ──────────────────────────────
+                _sh_color = "#34d399" if _sh_term >= 0 else "#f87171"
+                _sh_label = (
+                    f"Shannon = {_c_old:,.0f} × ln({_p_new_w:.2f} / {_p_old:.2f})"
+                    f"  =  ${_sh_term:+,.2f}"
+                )
+                _sh_note  = "  · ราคาไม่เปลี่ยน ∴ Shannon = $0" if _price_unchanged else ""
+                st.markdown(
+                    f"<div style='background:#1e293b;border:1px solid #1e3a2f;border-radius:8px;"
+                    f"padding:10px 14px;margin:2px 0 4px;font-family:monospace;"
+                    f"font-size:13px;color:#94a3b8'>"
+                    f"<span style='color:#64748b;font-size:11px'>"
+                    f"💰 Shannon Baseline  (fix_c × ln(Pt / P0))</span><br/>"
+                    f"<span style='color:{_sh_color};font-weight:600'>{_sh_label}</span>"
+                    f"{_sh_note}</div>",
                     unsafe_allow_html=True,
                 )
 
