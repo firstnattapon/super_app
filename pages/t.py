@@ -57,7 +57,7 @@ if st.button("🚀 เทส Gemini อ่านสลิป (จำลอง 10
             # Init client — timeout=30 (fix จริง)
             client = genai.Client(
                 api_key=api_key,
-                http_options=HttpOptions(timeout=30),
+                http_options=HttpOptions(timeout=60),
             )
 
             # Optimize image
