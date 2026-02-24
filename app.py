@@ -1,5 +1,7 @@
 import math
 import time
+import urllib.request
+import urllib.error
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -1181,6 +1183,70 @@ def _render_manage_data(data: dict):
         
         st.divider()
         st.markdown("##### 📥 Import Data (นำเข้าข้อมูล)")
+
+        # ── Import from URL ─────────────────────────────────────────
+        _DEFAULT_IMPORT_URL = (
+            "https://raw.githubusercontent.com/firstnattapon/super_app/"
+            "refs/heads/main/data/chain_system_backup.json"
+        )
+        import_url = st.text_input(
+            "🔗 URL ของไฟล์ JSON (Import จาก URL)",
+            value=_DEFAULT_IMPORT_URL,
+            key="import_url_input",
+        )
+
+        if st.button("📥 Import จาก URL", key="import_url_btn"):
+            if not import_url.strip():
+                st.error("❌ กรุณาระบุ URL")
+            else:
+                try:
+                    with urllib.request.urlopen(import_url.strip()) as response:
+                        raw_bytes = response.read()
+                    url_data = json.loads(raw_bytes.decode("utf-8"))
+
+                    if not isinstance(url_data, dict) or "tickers" not in url_data:
+                        st.error(
+                            "❌ โครงสร้าง JSON ไม่ถูกต้อง — "
+                            "ต้องเป็น dict ที่มีคีย์ 'tickers'"
+                        )
+                    else:
+                        st.session_state["_url_import_data"] = url_data
+                        st.session_state["_url_import_src"]  = import_url.strip()
+
+                except urllib.error.URLError as e:
+                    st.error(f"❌ URL ไม่ถูกต้องหรือเข้าถึงไม่ได้: {e.reason}")
+                except json.JSONDecodeError:
+                    st.error("❌ ไฟล์ที่ได้จาก URL ไม่ใช่ JSON ที่ถูกต้อง")
+                except Exception as e:
+                    st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+
+        # ── Confirm step for URL import ────────────────────────────
+        if "_url_import_data" in st.session_state:
+            url_data = st.session_state["_url_import_data"]
+            url_src  = st.session_state.get("_url_import_src", "")
+            n_tickers = len(url_data.get("tickers", []))
+            st.warning(
+                f"⚠️ **พร้อม Import จาก URL** — พบ {n_tickers} tickers\n\n"
+                f"`{url_src}`\n\n"
+                f"การ Import จะ **เขียนทับข้อมูลปัจจุบัน** ทั้งหมด"
+            )
+            cfm_c1, cfm_c2 = st.columns([1, 1])
+            with cfm_c1:
+                if st.button("✅ Confirm Import จาก URL", type="primary", key="confirm_url_import_btn"):
+                    save_trading_data(url_data)
+                    st.session_state.pop("_url_import_data", None)
+                    st.session_state.pop("_url_import_src", None)
+                    st.success("✅ นำเข้าข้อมูลจาก URL สำเร็จ! ระบบกำลังรีโหลด...")
+                    st.rerun()
+            with cfm_c2:
+                if st.button("✖ ยกเลิก", key="cancel_url_import_btn"):
+                    st.session_state.pop("_url_import_data", None)
+                    st.session_state.pop("_url_import_src", None)
+                    st.rerun()
+
+        st.divider()
+
+        # ── Import from File ───────────────────────────────────────
         uploaded_file = st.file_uploader("อัปโหลดไฟล์ JSON ที่ได้จากการ Export", type=["json"])
         if uploaded_file is not None:
             try:
