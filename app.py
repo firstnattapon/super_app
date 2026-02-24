@@ -501,7 +501,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
     yf_col_btn, yf_col_status = st.columns([2, 8])
     with yf_col_btn:
         fetch_clicked = st.button(
-            "🔄 Yahoo ราคาล่าสุด",
+            "🔄",
             key=f"yf_fetch_{idx}",
             use_container_width=True,
             help="ดึงราคาปัจจุบันจาก Yahoo Finance แล้วเติมลง P New อัตโนมัติ",
@@ -1463,3 +1463,4 @@ def _render_manage_data(data: dict):
 
 if __name__ == "__main__":
     main()
+
