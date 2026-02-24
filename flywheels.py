@@ -327,108 +327,21 @@ def repair_baseline(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
+def build_portfolio_df(data) -> pd.DataFrame:
     """Build a pandas DataFrame summarizing all tickers."""
+    tickers = data.get("tickers", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
     rows = []
-    for item in data:
-        ticker = item.get("ticker", "???")
+    for item in tickers:
         state = item.get("current_state", {})
-        
         rows.append({
-            "Ticker": ticker,
-            "Price (t)": float(state.get("price", 0.0)),
-            "Fix_C": float(state.get("fix_c", 0.0)),
-            "Baseline (b)": float(state.get("baseline", 0.0)),
-            "Ev (Extrinsic)": float(state.get("cumulative_ev", 0.0)),
-            "Lock P&L": float(state.get("lock_pnl", 0.0)),
-            "Surplus IV": float(state.get("surplus_iv", 0.0)),
-            "Net": float(state.get("net_pnl", 0.0)),
+            "Ticker":           item.get("ticker", "???"),
+            "Price (t)":        float(state.get("price",         0.0)),
+            "Fix_C":            float(state.get("fix_c",          0.0)),
+            "Baseline (b)":     float(state.get("baseline",       0.0)),
+            "Ev (Extrinsic)":   float(state.get("cumulative_ev",  0.0)),
+            "Lock P&L":         float(state.get("lock_pnl",       0.0)),
+            "Surplus IV":       float(state.get("surplus_iv",      0.0)),
+            "Net":              float(state.get("net_pnl",         0.0)),
         })
     return pd.DataFrame(rows)
 
-
-# ============================================================
-# CHAPTERS 0-7 — Placeholders
-# ============================================================
-
-def chapter_0_introduction() -> None:
-    st.header("บทที่ 0: Introduction")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_1_baseline() -> None:
-    st.header("บทที่ 1: Baseline")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_2_shannon_process() -> None:
-    st.header("บทที่ 2: Shannon Process")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_3_volatility_harvesting() -> None:
-    st.header("บทที่ 3: Volatility Harvesting")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_4_black_swan_shield() -> None:
-    st.header("บทที่ 4: Black Swan Shield")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_5_dynamic_scaling() -> None:
-    st.header("บทที่ 5: Dynamic Scaling")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_6_synthetic_dividend() -> None:
-    st.header("บทที่ 6: Synthetic Dividend")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-def chapter_7_collateral_magic() -> None:
-    st.header("บทที่ 7: Collateral Magic")
-    st.warning("Content currently unavailable. Please restore from backup if needed.")
-
-
-# ============================================================
-# CHAPTER 8: CHAIN SYSTEM — imported from chain_system.py
-# ============================================================
-def chapter_chain_system() -> None:
-    try:
-        from chain_system import chapter_chain_system as _run_chapter
-        _run_chapter()
-    except ImportError:
-        st.warning("File `chain_system.py` not found or contains errors. Falling back to active Engine.")
-        st.info("💡 Plase run `app.py` for the main Engine view.")
-
-
-# ============================================================
-# FUNCTION ALIASES — for Manual page compatibility
-# ============================================================
-chapter_2_volatility_harvest = chapter_2_shannon_process
-chapter_3_convexity_engine = chapter_3_volatility_harvesting
-
-# ============================================================
-# MAIN APP NAVIGATION
-# ============================================================
-
-def main() -> None:
-    st.sidebar.title("Flywheel & Shannon's Demon")
-    menu = st.sidebar.radio("Menu", [
-        "Introduction", "Baseline", "Shannon Process", "Volatility Harvesting",
-        "Black Swan Shield", "Dynamic Scaling", "Synthetic Dividend", "Collateral Magic",
-        "Chain System (Active)", "Quiz", "Paper Trading", "Glossary"
-    ], index=8)
-
-    if menu == "Introduction": chapter_0_introduction()
-    elif menu == "Baseline": chapter_1_baseline()
-    elif menu == "Shannon Process": chapter_2_shannon_process()
-    elif menu == "Volatility Harvesting": chapter_3_volatility_harvesting()
-    elif menu == "Black Swan Shield": chapter_4_black_swan_shield()
-    elif menu == "Dynamic Scaling": chapter_5_dynamic_scaling()
-    elif menu == "Synthetic Dividend": chapter_6_synthetic_dividend()
-    elif menu == "Collateral Magic": chapter_7_collateral_magic()
-    elif menu == "Chain System (Active)": chapter_chain_system()
-    elif menu == "Quiz": master_study_guide_quiz()
-    elif menu == "Paper Trading": paper_trading_workshop()
-    elif menu == "Glossary": glossary_section()
-
-def master_study_guide_quiz() -> None: pass
-def paper_trading_workshop() -> None: pass
-def glossary_section() -> None: pass
-
-if __name__ == "__main__":
-    main()
