@@ -79,29 +79,26 @@ def fetch_yahoo_price(ticker: str) -> tuple:
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
-    run_chain_round, commit_round,
+    run_chain_round, commit_round, build_portfolio_df,
 )
 
-# Graceful import fallback
-try:
-    from flywheels import build_portfolio_df
-except ImportError:
-    import pandas as _pd
-    def build_portfolio_df(data):
-        rows = []
-        for item in (data if isinstance(data, list) else []):
-            state = item.get("current_state", {})
-            rows.append({
-                "Ticker":       item.get("ticker", "???"),
-                "Price (t)":    float(state.get("price",        0.0)),
-                "Fix_C":        float(state.get("fix_c",         0.0)),
-                "Baseline (b)": float(state.get("baseline",      0.0)),
-                "Ev (Extrinsic)": float(state.get("cumulative_ev", 0.0)),
-                "Lock P&L":     float(state.get("lock_pnl",      0.0)),
-                "Surplus IV":   float(state.get("surplus_iv",    0.0)),
-                "Net":          float(state.get("net_pnl",       0.0)),
-            })
-        return _pd.DataFrame(rows)
+
+# ============================================================
+# UI HELPERS — Reusable styled components
+# ============================================================
+def _vspace(n: int = 2):
+    """Insert vertical whitespace."""
+    for _ in range(n):
+        st.write("")
+
+def _styled_html(content: str, bg: str = "#1e293b", border: str = "#334155",
+                 font_size: str = "13px", color: str = "#94a3b8") -> str:
+    """Wrap content in a styled monospace div."""
+    return (
+        f"<div style='background:{bg};border:1px solid {border};border-radius:8px;"
+        f"padding:10px 14px;margin:4px 0;font-family:monospace;font-size:{font_size};color:{color}'>"
+        f"{content}</div>"
+    )
 
 # ============================================================
 # HELPER: Treasury Logging
@@ -504,12 +501,12 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                     "scale_up":       float(new_c_after - float(rd["c_before"])),
                 })
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
-                del st.session_state["_pending_round"]
+                st.session_state.pop("_pending_round", None)
                 st.success(f"✅ Committed! {selected_ticker} fix_c → ${new_c_after:,.0f}")
                 st.rerun()
         with cnl_col:
             if st.button("✖ Cancel", use_container_width=True, key="cancel_preview"):
-                del st.session_state["_pending_round"]
+                st.session_state.pop("_pending_round", None)
                 st.rerun()
     else:
         with st.container(border=True):
@@ -547,7 +544,8 @@ def _render_center_panels(data: dict, tickers_list: list, active_ticker: str, ac
 
 def _render_pool_cf_section(data: dict):
     with st.expander('🎱 Pool CF & Allocation', expanded=False):
-        ticker_names = [t.get("ticker", "???") for t in get_tickers(data)]
+        tickers_list = get_tickers(data)
+        ticker_names = [t.get("ticker", "???") for t in tickers_list]
         note_options = ["None"] + ticker_names
         
         with st.form("add_pool_cf_form", clear_on_submit=True):
@@ -556,7 +554,7 @@ def _render_pool_cf_section(data: dict):
                 amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0)
                 selected_ticker = st.selectbox("Note (Select Ticker)", options=note_options)
             with c2: 
-                st.write(""); st.write(""); st.write(""); st.write("")
+                _vspace(4)
                 btn_add = st.form_submit_button("💰 Add Fund", type="primary")
                 
             if btn_add and amount > 0:
@@ -576,7 +574,7 @@ def _render_pool_cf_section(data: dict):
                 h_amount = st.number_input("Harvest Amount ($)", min_value=0.0, value=0.0, step=100.0)
                 h_ticker = st.selectbox("Note (Select Ticker)", options=note_options, key="harvest_note")
             with hc2:
-                st.write(""); st.write(""); st.write(""); st.write("")
+                _vspace(4)
                 btn_harvest = st.form_submit_button("🌾 Add Harvest", type="primary")
                 
             if btn_harvest and h_amount > 0:
@@ -590,7 +588,7 @@ def _render_pool_cf_section(data: dict):
 
         st.divider()
         st.markdown("##### 📥 Extract Baseline to Pool CF")
-        eligible_tickers = [t for t in get_tickers(data) if float(t.get("current_state", {}).get("baseline", 0.0)) > 0]
+        eligible_tickers = [t for t in tickers_list if float(t.get("current_state", {}).get("baseline", 0.0)) > 0]
         
         if eligible_tickers:
             with st.form("extract_baseline_form", clear_on_submit=True):
@@ -601,7 +599,7 @@ def _render_pool_cf_section(data: dict):
                     max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0.0)) if selected_t_obj else 0.0
                     ext_amount = st.number_input("Extract Amount ($)", min_value=0.0, max_value=max_baseline, value=max_baseline, step=100.0)
                 with hc2:
-                    st.write(""); st.write(""); st.write(""); st.write("")
+                    _vspace(4)
                     btn_extract = st.form_submit_button("📥 Extract to Pool CF", type="primary")
                     
                 if btn_extract and ext_amount > 0 and selected_t_obj:
@@ -658,7 +656,7 @@ def _render_deployment_section(data: dict, tickers_list: list):
                 d_amt  = st.number_input("Amount ($)", min_value=0.0, max_value=pool_cf if pool_cf > 0 else 0.0, value=0.0, step=100.0)
                 d_note = st.text_input("Note (optional)", value="")
             with f2:
-                st.write(""); st.write(""); st.write("")
+                _vspace(3)
                 submitted = st.form_submit_button("🚀 Deploy to Baseline", type="primary", use_container_width=True)
 
         if submitted and d_amt > 0:
@@ -710,6 +708,9 @@ def _render_ev_leaps_section(data: dict):
         st.divider()
         st.markdown("##### 📤 Pay LEAPS (Expense/Adjustment)")
         ticker_names = [t.get("ticker", "???") for t in get_tickers(data)]
+        # NOTE: Separate get_tickers call here is intentional — this section is inside
+        # a different expander than Pool CF, and the tickers list from _render_pool_cf_section
+        # is not passed through. Acceptable overhead for isolation.
         note_options = ["None"] + ticker_names
         
         col_c, col_d = st.columns(2)
@@ -717,7 +718,7 @@ def _render_ev_leaps_section(data: dict):
             pay_leaps_amt = st.number_input("LEAPS Net Flow ($)", value=0.0, step=100.0, help="Negative (-) = Expense/Cost.")
             selected_leaps_ticker = st.selectbox("Note (Select Ticker)", options=note_options, key="leaps_note_ticker")
         with col_d:
-            st.write(""); st.write("")
+            _vspace(2)
             if st.button("💾 Record Flow"):
                 data["global_ev_reserve"] = ev_reserve + pay_leaps_amt
                 note_str = "Manual Adjustment"
@@ -1151,7 +1152,13 @@ def _render_manage_data(data: dict):
                     if new_ticker not in existing:
                         new_entry = {
                             "ticker": new_ticker, "Final": f"{init_price}, {init_c}, 0.0",
-                            "current_state": {"price": init_price, "fix_c": init_c, "baseline": init_price, "cumulative_ev": 0.0},
+                            "current_state": {
+                                "price": init_price, "fix_c": init_c,
+                                "baseline": init_price, "cumulative_ev": 0.0,
+                                "pool_cf_net": 0.0, "surplus_iv": 0.0,
+                                "lock_pnl": 0.0, "net_pnl": 0.0,
+                                "strategy_tags": [],
+                            },
                             "rounds": [], "beta_momory": "0.0, 0.0, 0.0"
                         }
                         if "tickers" not in data: data["tickers"] = []
