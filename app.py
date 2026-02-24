@@ -1,4 +1,5 @@
 import math
+import time
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -7,6 +8,75 @@ import json
 from datetime import datetime
 
 st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
+
+# ── Yahoo Finance (optional) ────────────────────────────────────────────
+try:
+    import yfinance as yf
+    _YF_AVAILABLE = True
+except ImportError:
+    _YF_AVAILABLE = False
+
+
+def fetch_yahoo_price(ticker: str) -> tuple:
+    """ดึงราคาล่าสุดจาก Yahoo Finance พร้อม cache 60 วินาที.
+    Returns (price: float, source: str)
+    source อาจเป็น: 'fast_info', 'history_5d', 'cached', 'error: ...'
+    """
+    if not _YF_AVAILABLE:
+        return 0.0, "error: yfinance ไม่ได้ติดตั้ง — รัน: pip install yfinance"
+
+    # Cache key รายนาที — ไม่ยิง API ซ้ำในระยะ 60 วินาที
+    cache_key = f"_yf_{ticker}_{int(time.time() // 60)}"
+    if cache_key in st.session_state:
+        cached = st.session_state[cache_key]
+        return cached["price"], cached["source"] + " (cached)"
+
+    try:
+        t_obj = yf.Ticker(ticker)
+
+        # Attempt 1: fast_info (เร็วที่สุด)
+        price = 0.0
+        source = ""
+        try:
+            raw = t_obj.fast_info
+            price = float(getattr(raw, "last_price", 0.0) or 0.0)
+            if price > 0:
+                source = "fast_info"
+        except Exception:
+            pass
+
+        # Attempt 2: history 5d
+        if price <= 0:
+            hist = t_obj.history(period="5d")
+            if not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+                source = "history_5d"
+
+        # Attempt 3: Thai stock — ลอง .BK suffix
+        if price <= 0 and "." not in ticker and len(ticker) <= 5:
+            bk_ticker = ticker + ".BK"
+            t_bk = yf.Ticker(bk_ticker)
+            try:
+                raw_bk = t_bk.fast_info
+                price = float(getattr(raw_bk, "last_price", 0.0) or 0.0)
+                if price > 0:
+                    source = f"fast_info (.BK → {bk_ticker})"
+            except Exception:
+                pass
+            if price <= 0:
+                hist_bk = t_bk.history(period="5d")
+                if not hist_bk.empty:
+                    price = float(hist_bk["Close"].iloc[-1])
+                    source = f"history_5d ({bk_ticker})"
+
+        if price <= 0:
+            return 0.0, f"error: ไม่พบราคาสำหรับ {ticker}"
+
+        st.session_state[cache_key] = {"price": price, "source": source}
+        return float(price), source
+
+    except Exception as e:
+        return 0.0, f"error: {str(e)[:60]}"
 
 from flywheels import (
     load_trading_data, save_trading_data, get_tickers,
@@ -332,6 +402,68 @@ def _render_engine_metrics(data: dict, tickers_list: list,
         else:
             t1.caption("📌 ยังไม่มี Ticker")
 
+    # ── BATCH YAHOO REFRESH (Expander ใต้ top bar) ──────────────────
+    if tickers_list and _YF_AVAILABLE:
+        with st.expander("🔄 Refresh All Prices from Yahoo Finance", expanded=False):
+            batch_prices = st.session_state.get("_batch_yahoo_prices", {})
+
+            col_refresh, col_apply, col_spacer = st.columns([2, 2, 6])
+            do_refresh = col_refresh.button("🔄 Fetch All", use_container_width=True, key="yf_batch_fetch")
+            do_apply   = col_apply.button("✅ Apply to current_state", use_container_width=True,
+                                          key="yf_batch_apply",
+                                          disabled=not batch_prices,
+                                          help="อัปเดต price ใน current_state โดยไม่ Run Chain Round")
+
+            if do_refresh:
+                new_batch = {}
+                prog = st.progress(0, text="กำลังดึงราคา...")
+                for i, t_item in enumerate(tickers_list):
+                    sym = t_item.get("ticker", "")
+                    if sym:
+                        time.sleep(0.3)  # rate-limit courtesy
+                        price, source = fetch_yahoo_price(sym)
+                        new_batch[sym] = {"price": price, "source": source}
+                    prog.progress((i + 1) / len(tickers_list), text=f"ดึงราคา {sym}...")
+                prog.empty()
+                st.session_state["_batch_yahoo_prices"] = new_batch
+                batch_prices = new_batch
+                st.rerun()
+
+            if batch_prices:
+                rows = []
+                for t_item in tickers_list:
+                    sym = t_item.get("ticker", "")
+                    stored = float(t_item.get("current_state", {}).get("price", 0.0))
+                    yf_data = batch_prices.get(sym, {})
+                    yp = yf_data.get("price", 0.0)
+                    diff_pct = ((yp - stored) / stored * 100) if stored > 0 and yp > 0 else 0.0
+                    ok = yp > 0
+                    rows.append({
+                        "Ticker":        sym,
+                        "Yahoo Price":   f"${yp:,.2f}" if ok else "❌ ไม่พบ",
+                        "Stored Price":  f"${stored:,.2f}",
+                        "Diff %":        f"{diff_pct:+.2f}%" if ok else "—",
+                        "Source":        yf_data.get("source", ""),
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                failed = [r["Ticker"] for r in rows if "❌" in r["Yahoo Price"]]
+                if failed:
+                    st.warning(f"⚠️ ดึงราคาไม่สำเร็จ: {', '.join(failed)}")
+
+            if do_apply and batch_prices:
+                updated = 0
+                for t_item in tickers_list:
+                    sym = t_item.get("ticker", "")
+                    yp = batch_prices.get(sym, {}).get("price", 0.0)
+                    if yp > 0:
+                        t_item.setdefault("current_state", {})["price"] = round(yp, 4)
+                        updated += 1
+                save_trading_data(data)
+                st.session_state.pop("_batch_yahoo_prices", None)
+                st.success(f"✅ อัปเดต price สำเร็จ {updated} ticker — ไม่มี Chain Round ถูก Run")
+                st.rerun()
+
 
 # ── ZONE LEFT: Ticker Watchlist ────────────────────────────────────────
 def _render_ticker_watchlist(tickers_list: list, active_idx: int):
@@ -362,13 +494,53 @@ def _render_chain_engine_center(data: dict, tickers_list: list,
         else:
             st.caption("💡 Preview → syncs Payoff tab")
 
+    # ── YAHOO PRICE FETCH ROW ──────────────────────────────────────────
+    pnew_key = f"strip_pnew_{idx}"          # widget key ที่ใช้ด้านล่าง
+    yf_info_key = f"_yf_info_{idx}"         # เก็บ source string ล่าสุด
+
+    yf_col_btn, yf_col_status = st.columns([2, 8])
+    with yf_col_btn:
+        fetch_clicked = st.button(
+            "🔄 Yahoo ราคาล่าสุด",
+            key=f"yf_fetch_{idx}",
+            use_container_width=True,
+            help="ดึงราคาปัจจุบันจาก Yahoo Finance แล้วเติมลง P New อัตโนมัติ",
+            disabled=not _YF_AVAILABLE,
+        )
+    with yf_col_status:
+        if not _YF_AVAILABLE:
+            st.caption("⚠️ `pip install yfinance` ก่อนใช้งาน")
+        elif yf_info_key in st.session_state:
+            info = st.session_state[yf_info_key]
+            color = "#22c55e" if "error" not in info["source"] else "#ef4444"
+            st.markdown(
+                f"<span style='font-size:12px;color:{color}'>"
+                f"📡 {selected_ticker}: <b>${info['price']:.2f}</b> "
+                f"<span style='color:#64748b'>({info['source']})</span></span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption(f"📡 กด ปุ่มซ้าย เพื่อดึงราคา {selected_ticker} จาก Yahoo")
+
+    if fetch_clicked:
+        with st.spinner(f"กำลังดึงราคา {selected_ticker}..."):
+            price, source = fetch_yahoo_price(selected_ticker)
+        if price > 0:
+            # เขียนตรงไปยัง widget key → number_input จะอ่านค่านี้หลัง rerun
+            st.session_state[pnew_key] = float(price)
+            st.session_state[yf_info_key] = {"price": price, "source": source}
+            st.rerun()
+        else:
+            st.error(f"❌ Yahoo: {source}")
+            st.session_state[yf_info_key] = {"price": 0.0, "source": source}
+
     # ── 1-ROW COMMAND STRIP ────────────────────────────────────────────
     with st.container(border=True):
         st.caption("⚡ Order Strip — ป้อนค่าแล้วกด Preview")
         sc1, sc2, sc3, sc4, sc5 = st.columns([2.5, 1.8, 1.2, 1.4, 1.8])
         with sc1:
             p_new = st.number_input("P New", min_value=0.01, value=default_p,
-                                    step=1.0, key=f"strip_pnew_{idx}")
+                                    step=1.0, key=pnew_key)
         with sc2:
             hedge_ratio = st.number_input("Hedge ×", min_value=0.0,
                                           value=default_hr, step=0.5,
