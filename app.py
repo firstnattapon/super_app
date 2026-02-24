@@ -402,68 +402,6 @@ def _render_engine_metrics(data: dict, tickers_list: list,
         else:
             t1.caption("📌 ยังไม่มี Ticker")
 
-    # ── BATCH YAHOO REFRESH (Expander ใต้ top bar) ──────────────────
-    if tickers_list and _YF_AVAILABLE:
-        with st.expander("🔄 Refresh All Prices from Yahoo Finance", expanded=False):
-            batch_prices = st.session_state.get("_batch_yahoo_prices", {})
-
-            col_refresh, col_apply, col_spacer = st.columns([2, 2, 6])
-            do_refresh = col_refresh.button("🔄 Fetch All", use_container_width=True, key="yf_batch_fetch")
-            do_apply   = col_apply.button("✅ Apply to current_state", use_container_width=True,
-                                          key="yf_batch_apply",
-                                          disabled=not batch_prices,
-                                          help="อัปเดต price ใน current_state โดยไม่ Run Chain Round")
-
-            if do_refresh:
-                new_batch = {}
-                prog = st.progress(0, text="กำลังดึงราคา...")
-                for i, t_item in enumerate(tickers_list):
-                    sym = t_item.get("ticker", "")
-                    if sym:
-                        time.sleep(0.3)  # rate-limit courtesy
-                        price, source = fetch_yahoo_price(sym)
-                        new_batch[sym] = {"price": price, "source": source}
-                    prog.progress((i + 1) / len(tickers_list), text=f"ดึงราคา {sym}...")
-                prog.empty()
-                st.session_state["_batch_yahoo_prices"] = new_batch
-                batch_prices = new_batch
-                st.rerun()
-
-            if batch_prices:
-                rows = []
-                for t_item in tickers_list:
-                    sym = t_item.get("ticker", "")
-                    stored = float(t_item.get("current_state", {}).get("price", 0.0))
-                    yf_data = batch_prices.get(sym, {})
-                    yp = yf_data.get("price", 0.0)
-                    diff_pct = ((yp - stored) / stored * 100) if stored > 0 and yp > 0 else 0.0
-                    ok = yp > 0
-                    rows.append({
-                        "Ticker":        sym,
-                        "Yahoo Price":   f"${yp:,.2f}" if ok else "❌ ไม่พบ",
-                        "Stored Price":  f"${stored:,.2f}",
-                        "Diff %":        f"{diff_pct:+.2f}%" if ok else "—",
-                        "Source":        yf_data.get("source", ""),
-                    })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-                failed = [r["Ticker"] for r in rows if "❌" in r["Yahoo Price"]]
-                if failed:
-                    st.warning(f"⚠️ ดึงราคาไม่สำเร็จ: {', '.join(failed)}")
-
-            if do_apply and batch_prices:
-                updated = 0
-                for t_item in tickers_list:
-                    sym = t_item.get("ticker", "")
-                    yp = batch_prices.get(sym, {}).get("price", 0.0)
-                    if yp > 0:
-                        t_item.setdefault("current_state", {})["price"] = round(yp, 4)
-                        updated += 1
-                save_trading_data(data)
-                st.session_state.pop("_batch_yahoo_prices", None)
-                st.success(f"✅ อัปเดต price สำเร็จ {updated} ticker — ไม่มี Chain Round ถูก Run")
-                st.rerun()
-
 
 # ── ZONE LEFT: Ticker Watchlist ────────────────────────────────────────
 def _render_ticker_watchlist(tickers_list: list, active_idx: int):
@@ -1463,4 +1401,3 @@ def _render_manage_data(data: dict):
 
 if __name__ == "__main__":
     main()
-
