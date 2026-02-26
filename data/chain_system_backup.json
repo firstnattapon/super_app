@@ -1459,7 +1459,15 @@
       "pool_cf_balance": 16100.74,
       "ev_reserve_balance": -13880.67,
       "note": "Manual Adjustment [Ticker: NVTS]"
+    },
+    {
+      "date": "2026-02-26 14:50",
+      "category": "Expense",
+      "amount": -20.0,
+      "pool_cf_balance": 16100.74,
+      "ev_reserve_balance": -13900.67,
+      "note": "Manual Adjustment [Ticker: GERN]"
     }
   ],
-  "global_ev_reserve": -13880.67
+  "global_ev_reserve": -13900.67
 }
