@@ -945,7 +945,7 @@
       },
       "current_state": {
         "price": 10.0,
-        "fix_c": 1700.0,
+        "fix_c": 2100.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 261.0,
@@ -954,7 +954,24 @@
         "net_pnl": -261.0,
         "strategy_tags": []
       },
-      "rounds": []
+      "rounds": [
+        {
+          "date": "2026-02-27 15:01",
+          "action": "Chain Round",
+          "p_old": 10.0,
+          "p_new": 10.0,
+          "c_before": 1700.0,
+          "c_after": 2100.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 400.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 0.0,
+          "round_id": 1
+        }
+      ]
     },
     {
       "ticker": "CLSK",
@@ -1467,7 +1484,15 @@
       "pool_cf_balance": 16100.74,
       "ev_reserve_balance": -13900.67,
       "note": "Manual Adjustment [Ticker: GERN]"
+    },
+    {
+      "date": "2026-02-27 15:02",
+      "category": "Expense",
+      "amount": -14.0,
+      "pool_cf_balance": 16100.74,
+      "ev_reserve_balance": -13914.67,
+      "note": "Manual Adjustment [Ticker: SG]"
     }
   ],
-  "global_ev_reserve": -13900.67
+  "global_ev_reserve": -13914.67
 }
