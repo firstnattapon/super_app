@@ -366,7 +366,7 @@ def _render_ticker_watchlist(tickers_list: list, active_idx: int):
 def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker: str, t_data: dict, idx: int):
     state      = t_data.get("current_state", {}) if t_data else {}
     settings   = data.get("settings", {})
-    default_hr = float(settings.get("default_hedge_ratio", 0.0))
+    default_hr = float(settings.get("default_hedge_ratio", 2.0))
     default_p  = float(max(0.01, round(float(state.get("price", 10.0)) * 1.1, 2)))
 
     hc1, hc2 = st.columns([3, 1])
@@ -1373,4 +1373,3 @@ def _render_manage_data(data: dict):
 
 if __name__ == "__main__":
     main()
-
