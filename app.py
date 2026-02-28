@@ -490,60 +490,33 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                     f"<span style='color:#64748b;font-size:11px'>💰 Shannon Baseline  (fix_c × ln(Pt / P0))</span><br/>"
                     f"<span style='color:{_sh_color};font-weight:600'>{_sh_label}</span>{_sh_note}</div>", unsafe_allow_html=True)
 
-            # ── Inline Preview Chart: Shannon Baseline vs Equation Baseline ──
+            # ── Inline Preview Chart: Shannon Baseline (minimal) ──
             orig = _get_original(t_data)
             if orig:
                 P0_orig, fix_c_orig, _ = orig
-                # Parse Final (current state values)
-                t_final = float(_p_old)     # current t (price reference)
-                fix_c_final = float(_c_old) # current fix_c
-                b_final = float(_b_old)     # current baseline
+                if P0_orig > 0:
+                    Pt = np.linspace(max(P0_orig * 0.3, 0.01), P0_orig * 3.0, 150)
+                    y_sh = fix_c_orig * np.log(Pt / P0_orig)
 
-                if P0_orig > 0 and t_final > 0:
-                    pt_min = P0_orig * 0.3
-                    pt_max = P0_orig * 3.0
-                    Pt = np.linspace(max(pt_min, 0.01), pt_max, 200)
-
-                    # Shannon Baseline: fix_c_orig × ln(Pt / P0_orig)
-                    y_shannon = fix_c_orig * np.log(Pt / P0_orig)
-
-                    # Equation Baseline: b_final + fix_c_final × ln(Pt / t_final)
-                    y_equation = b_final + fix_c_final * np.log(Pt / t_final)
-
-                    fig_preview = go.Figure()
-                    fig_preview.add_trace(go.Scatter(
-                        x=Pt, y=y_shannon, mode="lines",
-                        name=f"Shannon (c={fix_c_orig:,.0f}, P0={P0_orig:.2f})",
-                        line=dict(color="#34d399", width=2)
+                    fig_pv = go.Figure()
+                    fig_pv.add_trace(go.Scatter(
+                        x=Pt, y=y_sh, mode="lines", showlegend=False,
+                        line=dict(color="#34d399", width=1.5),
+                        hovertemplate="Pt=%{x:.2f}<br>Shannon=%{y:,.2f}<extra></extra>"
                     ))
-                    fig_preview.add_trace(go.Scatter(
-                        x=Pt, y=y_equation, mode="lines",
-                        name=f"Equation (c={fix_c_final:,.0f}, t={t_final:.2f}, b={b_final:.2f})",
-                        line=dict(color="#fb923c", width=2, dash="dot")
-                    ))
-                    # Vertical line: P0 (Original price)
-                    fig_preview.add_vline(
-                        x=P0_orig, line_dash="dash", line_color="#60a5fa", line_width=1.5,
-                        annotation_text=f"P0={P0_orig:.2f}", annotation_position="top left",
-                        annotation_font_color="#60a5fa", annotation_font_size=10
+                    fig_pv.add_vline(x=P0_orig, line_dash="dot", line_color="#60a5fa", line_width=1,
+                                     annotation_text=f"P0 {P0_orig:.2f}", annotation_font_size=9, annotation_font_color="#60a5fa")
+                    fig_pv.add_vline(x=float(_p_new_w), line_dash="dot", line_color="#fbbf24", line_width=1,
+                                     annotation_text=f"Pnew {_p_new_w:.2f}", annotation_font_size=9, annotation_font_color="#fbbf24")
+                    fig_pv.update_layout(
+                        height=180, showlegend=False,
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1e293b",
+                        font=dict(color="#64748b", size=9),
+                        margin=dict(l=35, r=10, t=10, b=20),
+                        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=8)),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(51,65,85,0.4)", zeroline=True, zerolinecolor="#475569", zerolinewidth=0.5, tickfont=dict(size=8)),
                     )
-                    # Vertical line: P_new (preview price)
-                    fig_preview.add_vline(
-                        x=float(_p_new_w), line_dash="dash", line_color="#fbbf24", line_width=1.5,
-                        annotation_text=f"P_new={_p_new_w:.2f}", annotation_position="top right",
-                        annotation_font_color="#fbbf24", annotation_font_size=10
-                    )
-                    fig_preview.update_layout(
-                        height=250,
-                        paper_bgcolor="#0f172a", plot_bgcolor="#1e293b",
-                        font=dict(color="#94a3b8", size=11),
-                        margin=dict(l=40, r=20, t=30, b=30),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10)),
-                        xaxis=dict(title="Price (Pt)", gridcolor="#334155", zerolinecolor="#475569"),
-                        yaxis=dict(title="Baseline ($)", gridcolor="#334155", zerolinecolor="#475569"),
-                        title=dict(text="📈 Shannon vs Equation Baseline", font=dict(size=13))
-                    )
-                    st.plotly_chart(fig_preview, use_container_width=True, key=f"preview_chart_{idx}")
+                    st.plotly_chart(fig_pv, use_container_width=True, key=f"preview_chart_{idx}")
             else:
                 st.warning("⚠️ ยังไม่มีข้อมูล Original — กรุณาเพิ่มใน Manage Data (แก้ไข Original ต่อ Ticker)")
 
