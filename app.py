@@ -504,10 +504,8 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                         line=dict(color="#34d399", width=1.5),
                         hovertemplate="Pt=%{x:.2f}<br>Shannon=%{y:,.2f}<extra></extra>"
                     ))
-                    fig_pv.add_vline(x=P0_orig, line_dash="dot", line_color="#60a5fa", line_width=1,
-                                     annotation_text=f"P0 {P0_orig:.2f}", annotation_font_size=9, annotation_font_color="#60a5fa")
-                    fig_pv.add_vline(x=float(_p_new_w), line_dash="dot", line_color="#fbbf24", line_width=1,
-                                     annotation_text=f"Pnew {_p_new_w:.2f}", annotation_font_size=9, annotation_font_color="#fbbf24")
+                    fig_pv.add_vline(x=P0_orig, line_dash="dot", line_color="#60a5fa", line_width=1)
+                    fig_pv.add_vline(x=float(_p_new_w), line_dash="dot", line_color="#fbbf24", line_width=1)
                     fig_pv.update_layout(
                         height=180, showlegend=False,
                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1e293b",
@@ -517,6 +515,12 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                         yaxis=dict(showgrid=True, gridcolor="rgba(51,65,85,0.4)", zeroline=True, zerolinecolor="#475569", zerolinewidth=0.5, tickfont=dict(size=8)),
                     )
                     st.plotly_chart(fig_pv, use_container_width=True, key=f"preview_chart_{idx}")
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;padding:0 4px;margin-top:-8px'>"
+                        f"<span style='color:#60a5fa'>● P0 = {P0_orig:.2f}</span>"
+                        f"<span style='color:#34d399'>c = {fix_c_orig:,.0f}</span>"
+                        f"<span style='color:#fbbf24'>● Pnew = {_p_new_w:.2f}</span>"
+                        f"</div>", unsafe_allow_html=True)
             else:
                 st.warning("⚠️ ยังไม่มีข้อมูล Original — กรุณาเพิ่มใน Manage Data (แก้ไข Original ต่อ Ticker)")
 
