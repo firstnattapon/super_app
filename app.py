@@ -490,6 +490,63 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                     f"<span style='color:#64748b;font-size:11px'>💰 Shannon Baseline  (fix_c × ln(Pt / P0))</span><br/>"
                     f"<span style='color:{_sh_color};font-weight:600'>{_sh_label}</span>{_sh_note}</div>", unsafe_allow_html=True)
 
+            # ── Inline Preview Chart: Shannon Baseline vs Equation Baseline ──
+            orig = _get_original(t_data)
+            if orig:
+                P0_orig, fix_c_orig, _ = orig
+                # Parse Final (current state values)
+                t_final = float(_p_old)     # current t (price reference)
+                fix_c_final = float(_c_old) # current fix_c
+                b_final = float(_b_old)     # current baseline
+
+                if P0_orig > 0 and t_final > 0:
+                    pt_min = P0_orig * 0.3
+                    pt_max = P0_orig * 3.0
+                    Pt = np.linspace(max(pt_min, 0.01), pt_max, 200)
+
+                    # Shannon Baseline: fix_c_orig × ln(Pt / P0_orig)
+                    y_shannon = fix_c_orig * np.log(Pt / P0_orig)
+
+                    # Equation Baseline: b_final + fix_c_final × ln(Pt / t_final)
+                    y_equation = b_final + fix_c_final * np.log(Pt / t_final)
+
+                    fig_preview = go.Figure()
+                    fig_preview.add_trace(go.Scatter(
+                        x=Pt, y=y_shannon, mode="lines",
+                        name=f"Shannon (c={fix_c_orig:,.0f}, P0={P0_orig:.2f})",
+                        line=dict(color="#34d399", width=2)
+                    ))
+                    fig_preview.add_trace(go.Scatter(
+                        x=Pt, y=y_equation, mode="lines",
+                        name=f"Equation (c={fix_c_final:,.0f}, t={t_final:.2f}, b={b_final:.2f})",
+                        line=dict(color="#fb923c", width=2, dash="dot")
+                    ))
+                    # Vertical line: P0 (Original price)
+                    fig_preview.add_vline(
+                        x=P0_orig, line_dash="dash", line_color="#60a5fa", line_width=1.5,
+                        annotation_text=f"P0={P0_orig:.2f}", annotation_position="top left",
+                        annotation_font_color="#60a5fa", annotation_font_size=10
+                    )
+                    # Vertical line: P_new (preview price)
+                    fig_preview.add_vline(
+                        x=float(_p_new_w), line_dash="dash", line_color="#fbbf24", line_width=1.5,
+                        annotation_text=f"P_new={_p_new_w:.2f}", annotation_position="top right",
+                        annotation_font_color="#fbbf24", annotation_font_size=10
+                    )
+                    fig_preview.update_layout(
+                        height=250,
+                        paper_bgcolor="#0f172a", plot_bgcolor="#1e293b",
+                        font=dict(color="#94a3b8", size=11),
+                        margin=dict(l=40, r=20, t=30, b=30),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10)),
+                        xaxis=dict(title="Price (Pt)", gridcolor="#334155", zerolinecolor="#475569"),
+                        yaxis=dict(title="Baseline ($)", gridcolor="#334155", zerolinecolor="#475569"),
+                        title=dict(text="📈 Shannon vs Equation Baseline", font=dict(size=13))
+                    )
+                    st.plotly_chart(fig_preview, use_container_width=True, key=f"preview_chart_{idx}")
+            else:
+                st.warning("⚠️ ยังไม่มีข้อมูล Original — กรุณาเพิ่มใน Manage Data (แก้ไข Original ต่อ Ticker)")
+
         btn_col, cnl_col = st.columns([4, 1])
         with btn_col:
             if st.button("✅ COMMIT — บันทึกถาวร", type="primary", use_container_width=True):
@@ -532,6 +589,36 @@ def _delta_badge(before: float, after: float, fmt: str = ",.0f") -> str:
         f"<span style='color:{color};font-weight:700'>${after:{fmt}}</span>"
         f"&nbsp;<span style='color:{color}'>({sign}{diff:{fmt}})</span></div>"
     )
+
+def _parse_ticker_record(s: str) -> tuple:
+    """Parse 'price, fix_c, baseline' string → (price, fix_c, baseline).
+    Also accepts initial_state dict with {price, fix_c} → (price, fix_c, 0.0).
+    Returns (0, 0, 0) on failure."""
+    try:
+        if isinstance(s, dict):
+            return (float(s.get("price", 0)), float(s.get("fix_c", 0)), float(s.get("baseline", 0.0)))
+        parts = [float(x.strip()) for x in str(s).split(",")]
+        if len(parts) >= 3:
+            return (parts[0], parts[1], parts[2])
+        elif len(parts) == 2:
+            return (parts[0], parts[1], 0.0)
+        return (0, 0, 0)
+    except Exception:
+        return (0, 0, 0)
+
+def _get_original(t_data: dict) -> tuple:
+    """Get Original (P0, fix_c_orig, baseline_orig) from ticker data.
+    Priority: 'Original' field > 'initial_state' dict > None.
+    Returns (P0, fix_c_orig, baseline_orig) or None if not available."""
+    if "Original" in t_data:
+        result = _parse_ticker_record(t_data["Original"])
+        if result[0] > 0:
+            return result
+    if "initial_state" in t_data:
+        result = _parse_ticker_record(t_data["initial_state"])
+        if result[0] > 0:
+            return result
+    return None
 
 def _render_center_panels(data: dict, tickers_list: list, active_ticker: str, active_t_data: dict):
     tab_hist, tab_treasury, tab_pool, tab_deploy = st.tabs(["📜 History", "🏛️ Treasury", "🎱 Pool CF", "🚀 Deploy"])
@@ -1153,7 +1240,10 @@ def _render_manage_data(data: dict):
                     existing = [d["ticker"] for d in get_tickers(data)]
                     if new_ticker not in existing:
                         new_entry = {
-                            "ticker": new_ticker, "Final": f"{init_price}, {init_c}, 0.0",
+                            "ticker": new_ticker,
+                            "Final": f"{init_price}, {init_c}, 0.0",
+                            "Original": f"{init_price}, {init_c}, 0.0",
+                            "initial_state": {"price": init_price, "fix_c": init_c},
                             "current_state": {
                                 "price": init_price, "fix_c": init_c,
                                 "baseline": init_price, "cumulative_ev": 0.0,
@@ -1170,6 +1260,41 @@ def _render_manage_data(data: dict):
                         st.rerun()
                     else:
                         st.error("Ticker นี้มีอยู่แล้วในพอร์ต")
+
+    with st.expander("📝 แก้ไข Original ต่อ Ticker (Backfill)", expanded=False):
+        tickers_list_md = get_tickers(data)
+        if tickers_list_md:
+            ticker_names_md = [t.get("ticker", "???") for t in tickers_list_md]
+            sel_ticker_md = st.selectbox("เลือก Ticker", ticker_names_md, key="edit_orig_ticker")
+            sel_idx_md = ticker_names_md.index(sel_ticker_md)
+            sel_t_data_md = tickers_list_md[sel_idx_md]
+
+            # Show current Original
+            cur_orig = _get_original(sel_t_data_md)
+            if cur_orig:
+                st.success(f"✅ Original ปัจจุบัน: P0={cur_orig[0]:.2f}, fix_c={cur_orig[1]:,.0f}, baseline={cur_orig[2]:.2f}")
+            else:
+                st.warning("⚠️ ยังไม่มีข้อมูล Original สำหรับ Ticker นี้")
+
+            with st.form("edit_original_form", clear_on_submit=False):
+                o_c1, o_c2, o_c3 = st.columns(3)
+                with o_c1:
+                    orig_p0 = st.number_input("P0 (ราคาเริ่มต้น)", min_value=0.01,
+                                               value=float(cur_orig[0]) if cur_orig else 10.0, step=0.5)
+                with o_c2:
+                    orig_fix_c = st.number_input("fix_c เริ่มต้น", min_value=1.0,
+                                                  value=float(cur_orig[1]) if cur_orig else 1500.0, step=100.0)
+                with o_c3:
+                    orig_baseline = st.number_input("Baseline เริ่มต้น", value=float(cur_orig[2]) if cur_orig else 0.0, step=10.0)
+
+                if st.form_submit_button("💾 Save Original", type="primary"):
+                    sel_t_data_md["Original"] = f"{orig_p0}, {orig_fix_c}, {orig_baseline}"
+                    sel_t_data_md["initial_state"] = {"price": orig_p0, "fix_c": orig_fix_c}
+                    save_trading_data(data)
+                    st.success(f"✅ บันทึก Original สำหรับ {sel_ticker_md} สำเร็จ!")
+                    st.rerun()
+        else:
+            st.info("ยังไม่มี Ticker — เพิ่มที่ด้านบนก่อน")
 
     with st.expander("💾 Export / Import Data", expanded=False):
         st.markdown("##### 📤 Export Data (ดาวน์โหลดข้อมูล)")
