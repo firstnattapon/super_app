@@ -444,11 +444,14 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
             new_surplus = r1c3.number_input("✨ Surplus", value=float(rd["surplus"]), step=10.0, format="%.2f", key="edit_surplus")
 
             scale_val = float(rd.get("scale_up", max(0.0, float(rd.get("surplus", 0.0)))))
-            sc_color  = "#22c55e" if scale_val > 0 else ("#ef4444" if scale_val < 0 else "#94a3b8")
-            st.markdown(
-                f"<div style='text-align:center;padding:4px 0 10px;font-size:13px;color:#94a3b8'>"
-                f"🚀 Scale Up &nbsp;<span style='color:{sc_color};font-weight:700;font-size:20px'>"
-                f"+${scale_val:,.2f}</span></div>", unsafe_allow_html=True)
+            # Zero State Suppression: render nothing when scale_up == 0
+            if abs(scale_val) > 0:
+                sc_color = "#22c55e" if scale_val > 0 else "#ef4444"
+                sc_sign  = "+" if scale_val > 0 else ""
+                st.markdown(
+                    f"<div style='text-align:right;padding:2px 8px 6px;font-family:monospace;font-size:12px;color:#64748b'>"
+                    f"Scale Up <span style='color:{sc_color};font-weight:600;font-size:13px'>"
+                    f"{sc_sign}${scale_val:,.2f}</span></div>", unsafe_allow_html=True)
 
             st.divider()
 
