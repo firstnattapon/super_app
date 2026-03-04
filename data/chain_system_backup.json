@@ -1492,7 +1492,15 @@
       "pool_cf_balance": 16100.74,
       "ev_reserve_balance": -13914.67,
       "note": "Manual Adjustment [Ticker: SG]"
+    },
+    {
+      "date": "2026-03-04 16:15",
+      "category": "Expense",
+      "amount": -5.0,
+      "pool_cf_balance": 16100.74,
+      "ev_reserve_balance": -13919.67,
+      "note": "Manual Adjustment [Ticker: GERN]"
     }
   ],
-  "global_ev_reserve": -13914.67
+  "global_ev_reserve": -13919.67
 }
