@@ -617,10 +617,11 @@ def _render_pool_cf_section(data: dict):
         ticker_names = [t.get("ticker", "???") for t in tickers_list]
         note_options = ["None"] + ticker_names
         
+        st.markdown('##### 1. 💰 Surplus Value')
         with st.form("add_pool_cf_form", clear_on_submit=True):
             c1, c2 = st.columns([2, 1])
             with c1: 
-                amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0)
+                amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=100.0, help="ทุน tap — กำไรส่วนเกิน (Surplus) ที่เหลือหลังจาก Shannon + Harvest ชนะค่า Put Hedge แล้ว นำมาเติมเข้า Pool CF เพื่อรอ Deploy รอบถัดไป")
                 selected_ticker = st.selectbox("Note (Select Ticker)", options=note_options)
             with c2: 
                 _vspace(4)
@@ -636,11 +637,11 @@ def _render_pool_cf_section(data: dict):
                 st.rerun()
 
         st.divider()
-        st.markdown("##### 🌾 Record Harvest Profit")
+        st.markdown('##### 2. 🌾 Record Harvest Profit')
         with st.form("record_harvest_form", clear_on_submit=True):
             hc1, hc2 = st.columns([2, 1])
             with hc1:
-                h_amount = st.number_input("Harvest Amount ($)", min_value=0.0, value=0.0, step=100.0)
+                h_amount = st.number_input("Harvest Amount ($)", min_value=0.0, value=0.0, step=100.0, help="ทุน tap — กำไรจริงที่ Harvest ได้จาก Rebalancing (Shannon Realized) เช่น ขายหุ้นส่วนเกินเมื่อราคาขึ้น บันทึกเข้า Pool CF เป็น Fuel สำหรับรอบถัดไป")
                 h_ticker = st.selectbox("Note (Select Ticker)", options=note_options, key="harvest_note")
             with hc2:
                 _vspace(4)
@@ -656,7 +657,7 @@ def _render_pool_cf_section(data: dict):
                 st.rerun()
 
         st.divider()
-        st.markdown("##### 📥 Extract Baseline to Pool CF")
+        st.markdown('##### 3. 📥 Extract Baseline to Pool CF')
         eligible_tickers = [t for t in tickers_list if float(t.get("current_state", {}).get("baseline", 0.0)) > 0]
         
         if eligible_tickers:
@@ -666,7 +667,7 @@ def _render_pool_cf_section(data: dict):
                     ext_ticker_name = st.selectbox("Select Ticker", options=[t.get("ticker") for t in eligible_tickers], key="extract_ticker")
                     selected_t_obj = next((t for t in eligible_tickers if t.get("ticker") == ext_ticker_name), None)
                     max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0.0)) if selected_t_obj else 0.0
-                    ext_amount = st.number_input("Extract Amount ($)", min_value=0.0, max_value=max_baseline, value=max_baseline, step=100.0)
+                    ext_amount = st.number_input("Extract Amount ($)", min_value=0.0, max_value=max_baseline, value=max_baseline, step=100.0, help="ทุน tap — ดึง Baseline (ทุนสะสมที่ scale_up ไว้ใน fix_c) ออกมาใส่ Pool CF โดยไม่กระทบ Position ปัจจุบัน เหมาะใช้เมื่อ Baseline สูงพอที่จะ lock กำไรแล้ว")
                 with hc2:
                     _vspace(4)
                     btn_extract = st.form_submit_button("📥 Extract to Pool CF", type="primary")
