@@ -875,9 +875,9 @@ def _render_payoff_profile_tab(data: dict):
     if pending and st.session_state.get("_pending_ticker_name") == t_data.get("ticker"):
         def_c = float(pending.get('c_after', def_c))
         def_p = float(pending.get('p_new', def_p))
-        st.success(f"🔗 **Connected State:** กราฟตั้งต้นจากค่า **Preview Calculation** ของ `{t_data.get('ticker')}` | New Price: ${def_p:,.2f} | New fix_c: ${def_c:,.0f}")
+        st.success(f"🔗 **Connected State** — `{t_data.get('ticker')}` | synced from Preview Calculation\n\n**New Price:** `${def_p:,.2f}`  ·  **New fix_c:** `${def_c:,.0f}`")
     else:
-        st.info(f"🟢 **Current State:** กราฟตั้งต้นจากข้อมูลปัจจุบันของ `{t_data.get('ticker')}` | Price: ${def_p:,.2f} | fix_c: ${def_c:,.0f}")
+        st.info(f"🟢 **Current State** — `{t_data.get('ticker')}` | ตั้งต้นจากข้อมูลปัจจุบัน\n\n**Price:** `${def_p:,.2f}`  ·  **fix_c:** `${def_c:,.0f}`")
 
     controls = _render_payoff_controls(def_p, def_c)
     _calculate_and_plot_payoff(def_p, def_c, controls, data)
