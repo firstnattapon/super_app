@@ -1182,7 +1182,7 @@
       ]
     }
   ],
-  "global_pool_cf": 16100.74,
+  "global_pool_cf": 16302.34,
   "settings": {
     "surplus_mode": "auto_compound",
     "default_sigma": 0.5,
@@ -1500,6 +1500,14 @@
       "pool_cf_balance": 16100.74,
       "ev_reserve_balance": -13919.67,
       "note": "Manual Adjustment [Ticker: GERN]"
+    },
+    {
+      "date": "2026-03-05 10:21",
+      "category": "Harvest",
+      "amount": 201.6,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -13919.67,
+      "note": "Harvest Profit"
     }
   ],
   "global_ev_reserve": -13919.67
