@@ -981,7 +981,7 @@
       },
       "current_state": {
         "price": 20.0,
-        "fix_c": 2800.0,
+        "fix_c": 3200.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 2284.2,
@@ -1097,6 +1097,22 @@
           "hedge_ratio": 0.0,
           "sigma": 0.0,
           "ev_change": 0.0
+        },
+        {
+          "date": "2026-03-10 14:14",
+          "action": "Chain Round",
+          "p_old": 20.0,
+          "p_new": 20.0,
+          "c_before": 2800.0,
+          "c_after": 3200.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 400.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 0.0,
+          "round_id": 8
         }
       ]
     },
@@ -1508,7 +1524,15 @@
       "pool_cf_balance": 16302.34,
       "ev_reserve_balance": -13919.67,
       "note": "Harvest Profit"
+    },
+    {
+      "date": "2026-03-10 14:10",
+      "category": "Expense",
+      "amount": -51.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -13970.67,
+      "note": "Manual Adjustment [Ticker: CLSK]"
     }
   ],
-  "global_ev_reserve": -13919.67
+  "global_ev_reserve": -13970.67
 }
