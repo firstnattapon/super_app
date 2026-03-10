@@ -611,7 +611,7 @@
       },
       "current_state": {
         "price": 17.0,
-        "fix_c": 1700.0,
+        "fix_c": 1900.0,
         "baseline": -171.48,
         "pool_cf_net": 0.0,
         "cumulative_ev": 2393.91,
@@ -743,6 +743,22 @@
           "b_after": -171.48,
           "hedge_ratio": 0.0,
           "round_id": 8
+        },
+        {
+          "date": "2026-03-10 14:22",
+          "action": "Chain Round",
+          "p_old": 17.0,
+          "p_new": 17.0,
+          "c_before": 1700.0,
+          "c_after": 1900.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 200.0,
+          "b_before": -171.48,
+          "b_after": -171.48,
+          "hedge_ratio": 0.0,
+          "round_id": 9
         }
       ]
     },
@@ -1124,7 +1140,7 @@
       },
       "current_state": {
         "price": 17.5,
-        "fix_c": 1800.0,
+        "fix_c": 2000.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 1643.86,
@@ -1194,6 +1210,22 @@
           "hedge_ratio": 0.0,
           "sigma": 0.0,
           "ev_change": 0.0
+        },
+        {
+          "date": "2026-03-10 14:23",
+          "action": "Chain Round",
+          "p_old": 17.5,
+          "p_new": 17.5,
+          "c_before": 1800.0,
+          "c_after": 2000.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 200.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 0.0,
+          "round_id": 5
         }
       ]
     }
