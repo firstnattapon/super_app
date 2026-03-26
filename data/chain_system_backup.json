@@ -1564,7 +1564,39 @@
       "pool_cf_balance": 16302.34,
       "ev_reserve_balance": -13970.67,
       "note": "Manual Adjustment [Ticker: CLSK]"
+    },
+    {
+      "date": "2026-03-26 15:25",
+      "category": "Expense",
+      "amount": -38.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -14008.67,
+      "note": "Manual Adjustment [Ticker: SG]"
+    },
+    {
+      "date": "2026-03-26 15:29",
+      "category": "Expense",
+      "amount": -88.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -14096.67,
+      "note": "Manual Adjustment [Ticker: QXO]"
+    },
+    {
+      "date": "2026-03-26 15:34",
+      "category": "Expense",
+      "amount": -73.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -14169.67,
+      "note": "Manual Adjustment [Ticker: DJT]"
+    },
+    {
+      "date": "2026-03-26 15:37",
+      "category": "Expense",
+      "amount": -85.5,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -14255.17,
+      "note": "Manual Adjustment [Ticker: GERN]"
     }
   ],
-  "global_ev_reserve": -13970.67
+  "global_ev_reserve": -14255.17
 }
