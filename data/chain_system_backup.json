@@ -1596,7 +1596,15 @@
       "pool_cf_balance": 16302.34,
       "ev_reserve_balance": -14255.17,
       "note": "Manual Adjustment [Ticker: GERN]"
+    },
+    {
+      "date": "2026-03-31 14:15",
+      "category": "Expense",
+      "amount": -16.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -14271.17,
+      "note": "Manual Adjustment [Ticker: RXRX]"
     }
   ],
-  "global_ev_reserve": -14255.17
+  "global_ev_reserve": -14271.17
 }
