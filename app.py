@@ -439,9 +439,9 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
         with st.container(border=True):
             st.markdown("**📊 Preview Result** — แก้ไขได้ก่อน Commit")
             r1c1, r1c2, r1c3 = st.columns(3)
-            new_shannon = r1c1.number_input("💰 Shannon Profit", value=float(rd["shannon_profit"]), step=10.0, format="%.2f", key="edit_shannon")
-            new_hedge   = r1c2.number_input("🛡️ Hedge Cost", value=float(rd["hedge_cost"]), step=10.0, format="%.2f", key="edit_hedge")
-            new_surplus = r1c3.number_input("✨ Surplus", value=float(rd["surplus"]), step=10.0, format="%.2f", key="edit_surplus")
+            new_shannon = r1c1.number_input("💰 Shannon Profit", value=float(rd["shannon_profit"]), step=10.0, format="%.2f", key="edit_shannon", help="กำไรจากความผันผวนในรอบนี้ตามทฤษฎี Shannon's Demon (สมการ: fix_c × ln(P_new / P_old)) ถือเป็น 'รายได้ตั้งต้น' ของพอร์ตก่อนนำไปหักลบกับค่าประกันความเสี่ยง")
+            new_hedge   = r1c2.number_input("🛡️ Hedge Cost", value=float(rd["hedge_cost"]), step=10.0, format="%.2f", key="edit_hedge", help="ต้นทุนค่าเบี้ยประกัน (Put Option Premium) ประเมินราคาผ่าน Black-Scholes Model (OTM 10%, Volatility 50%) โดยคำนวณจำนวนสัญญาตามสัดส่วน Hedge × ที่คุณตั้งไว้")
+            new_surplus = r1c3.number_input("✨ Surplus", value=float(rd["surplus"]), step=10.0, format="%.2f", key="edit_surplus", help="กำไรส่วนเกินสุทธิ (Shannon Profit - Hedge Cost) หากมีค่าเป็นบวก เงินก้อนนี้จะถูกนำไปทบเพิ่มในหน้าตัก (Scale Up fix_c) ทำให้พอร์ตเติบโตได้แบบไร้ความเสี่ยง (Free Risk)")
 
             scale_val = float(rd.get("scale_up", max(0.0, float(rd.get("surplus", 0.0)))))
             # Zero State Suppression: render nothing when scale_up == 0
