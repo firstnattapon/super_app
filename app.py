@@ -413,7 +413,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
         with sc1:
             p_new = st.number_input("P New", min_value=0.01, value=default_p, step=1.0, key=pnew_key)
         with sc2:
-            hedge_ratio = st.number_input("Hedge ×", min_value=0.0, value=default_hr, step=0.5, key=f"strip_hr_{idx}")
+            hedge_ratio = st.number_input("Hedge ×", min_value=0.0, value=default_hr, step=0.5, key=f"strip_hr_{idx}", help="สัดส่วนการทำประกันความเสี่ยงของพอร์ต (Hedge Ratio) ค่า 1.0 คือการป้องกันแบบพอดีตัว (1:1) ส่วนค่า 2.0 คือการ Over-hedge เป็น 2 เท่า เพื่อเร่งเครื่อง Convexity ให้ระเบิดกำไรเวลาตลาดเกิดวิกฤต")
         with sc3:
             ignore_hedge = st.checkbox("No Hedge", value=False, key=f"strip_ih_{idx}")
         with sc4:
