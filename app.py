@@ -411,7 +411,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
         st.caption("⚡ Order Strip — ป้อนค่าแล้วกด Preview")
         sc1, sc2, sc3, sc4, sc5 = st.columns([2.5, 1.8, 1.2, 1.4, 1.8])
         with sc1:
-            p_new = st.number_input("P New", min_value=0.01, value=default_p, step=1.0, key=pnew_key)
+            p_new = st.number_input("P New", min_value=0.01, value=default_p, step=1.0, key=pnew_key, help="ราคาใหม่หรือราคาเป้าหมายของสินทรัพย์ (Target Price) ในรอบนี้ ระบบจะนำไปเปรียบเทียบกับราคาเดิม (P Old) เพื่อคำนวณส่วนต่างและสร้างกำไรจากความผันผวน (Shannon Profit)")
         with sc2:
             hedge_ratio = st.number_input("Hedge ×", min_value=0.0, value=default_hr, step=0.5, key=f"strip_hr_{idx}", help="สัดส่วนการทำประกันความเสี่ยงของพอร์ต (Hedge Ratio) ค่า 1.0 คือการป้องกันแบบพอดีตัว (1:1) ส่วนค่า 2.0 คือการ Over-hedge เป็น 2 เท่า เพื่อเร่งเครื่อง Convexity ให้ระเบิดกำไรเวลาตลาดเกิดวิกฤต")
         with sc3:
