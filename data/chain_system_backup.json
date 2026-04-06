@@ -227,9 +227,9 @@
         "fix_c": 1500.0
       },
       "current_state": {
-        "price": 28.5,
-        "fix_c": 2700.0,
-        "baseline": -321.91,
+        "price": 40.0,
+        "fix_c": 4000.0,
+        "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 1030.0,
         "surplus_iv": 0.0,
@@ -265,6 +265,57 @@
           "b_after": -321.91,
           "surplus": 0.0,
           "scale_up": 200.0
+        },
+        {
+          "date": "2026-04-06 13:19",
+          "action": "Chain Round",
+          "p_old": 28.5,
+          "p_new": 40.0,
+          "c_before": 2700.0,
+          "c_after": 2700.0,
+          "shannon_profit": 915.23,
+          "hedge_cost": 0.0,
+          "surplus": 915.23,
+          "scale_up": 0.0,
+          "b_before": -321.91,
+          "b_after": 593.32,
+          "hedge_ratio": 2.0,
+          "round_id": 3
+        },
+        {
+          "date": "2026-04-06 13:21",
+          "action": "Chain Round",
+          "p_old": 40.0,
+          "p_new": 40.0,
+          "c_before": 2700.0,
+          "c_after": 4000.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 1300.0,
+          "b_before": 593.32,
+          "b_after": 593.32,
+          "hedge_ratio": 2.0,
+          "round_id": 4
+        },
+        {
+          "date": "2026-04-06 13:22",
+          "action": "Extract Baseline",
+          "p_old": 40.0,
+          "p_new": 40.0,
+          "c_before": 4000.0,
+          "c_after": 4000.0,
+          "shannon_profit": 0.0,
+          "harvest_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 0.0,
+          "b_before": 593.32,
+          "b_after": 0.0,
+          "note": "Extracted $593.32 to Pool CF",
+          "hedge_ratio": 0.0,
+          "sigma": 0.0,
+          "ev_change": 0.0
         }
       ]
     },
@@ -1230,7 +1281,7 @@
       ]
     }
   ],
-  "global_pool_cf": 16302.34,
+  "global_pool_cf": 16895.66,
   "settings": {
     "surplus_mode": "auto_compound",
     "default_sigma": 0.5,
@@ -1604,7 +1655,23 @@
       "pool_cf_balance": 16302.34,
       "ev_reserve_balance": -14271.17,
       "note": "Manual Adjustment [Ticker: RXRX]"
+    },
+    {
+      "date": "2026-04-06 13:18",
+      "category": "Expense",
+      "amount": -1230.0,
+      "pool_cf_balance": 16302.34,
+      "ev_reserve_balance": -15501.17,
+      "note": "Manual Adjustment [Ticker: APLS]"
+    },
+    {
+      "date": "2026-04-06 13:22",
+      "category": "Baseline Harvest",
+      "amount": 593.32,
+      "pool_cf_balance": 16895.66,
+      "ev_reserve_balance": -15501.17,
+      "note": "[Ticker: APLS]"
     }
   ],
-  "global_ev_reserve": -14271.17
+  "global_ev_reserve": -15501.17
 }
