@@ -2,9 +2,9 @@
   "version": 2,
   "tickers": [
     {
-      "ticker": "FFWM",
+      "ticker": "FSUN",
       "initial_state": {
-        "price": 6.88,
+        "price": 42.7,
         "fix_c": 1500.0
       },
       "current_state": {
@@ -18,7 +18,8 @@
         "net_pnl": -204.0,
         "strategy_tags": []
       },
-      "rounds": []
+      "rounds": [],
+      "Original": "42.7, 1500.0, 0.0"
     },
     {
       "ticker": "NEGG",
@@ -228,7 +229,7 @@
       },
       "current_state": {
         "price": 40.0,
-        "fix_c": 4000.0,
+        "fix_c": 8000.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 1030.0,
@@ -316,6 +317,22 @@
           "hedge_ratio": 0.0,
           "sigma": 0.0,
           "ev_change": 0.0
+        },
+        {
+          "date": "2026-04-06 14:19",
+          "action": "Chain Round",
+          "p_old": 40.0,
+          "p_new": 40.0,
+          "c_before": 4000.0,
+          "c_after": 8000.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 4000.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 2.0,
+          "round_id": 6
         }
       ]
     },
@@ -1294,7 +1311,7 @@
       "amount": -204.0,
       "pool_cf_balance": 0.0,
       "ev_reserve_balance": -204.0,
-      "note": "Manual Adjustment [Ticker: FFWM]"
+      "note": "Manual Adjustment [Ticker: FSUN]"
     },
     {
       "date": "2026-02-21 07:02",
