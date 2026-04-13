@@ -928,7 +928,7 @@
       },
       "current_state": {
         "price": 14.15,
-        "fix_c": 1700.0,
+        "fix_c": 2000.0,
         "baseline": -109.75,
         "pool_cf_net": 0.0,
         "cumulative_ev": 336.58,
@@ -951,6 +951,22 @@
           "b_after": -109.75,
           "surplus": 0.0,
           "scale_up": -300.0
+        },
+        {
+          "date": "2026-04-13 11:09",
+          "action": "Chain Round",
+          "p_old": 14.15,
+          "p_new": 14.15,
+          "c_before": 1700.0,
+          "c_after": 2000.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 300.0,
+          "b_before": -109.75,
+          "b_after": -109.75,
+          "hedge_ratio": 2.0,
+          "round_id": 2
         }
       ]
     },
@@ -1029,7 +1045,7 @@
       },
       "current_state": {
         "price": 10.0,
-        "fix_c": 2100.0,
+        "fix_c": 2500.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 261.0,
@@ -1054,6 +1070,22 @@
           "b_after": 0.0,
           "hedge_ratio": 0.0,
           "round_id": 1
+        },
+        {
+          "date": "2026-04-13 11:11",
+          "action": "Chain Round",
+          "p_old": 10.0,
+          "p_new": 10.0,
+          "c_before": 2100.0,
+          "c_after": 2500.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 400.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 2.0,
+          "round_id": 2
         }
       ]
     },
@@ -1208,7 +1240,7 @@
       },
       "current_state": {
         "price": 17.5,
-        "fix_c": 2000.0,
+        "fix_c": 2400.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 1643.86,
@@ -1294,11 +1326,27 @@
           "b_after": 0.0,
           "hedge_ratio": 0.0,
           "round_id": 5
+        },
+        {
+          "date": "2026-04-13 11:10",
+          "action": "Chain Round",
+          "p_old": 17.5,
+          "p_new": 17.5,
+          "c_before": 2000.0,
+          "c_after": 2400.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": 400.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 2.0,
+          "round_id": 6
         }
       ]
     }
   ],
-  "global_pool_cf": 16895.66,
+  "global_pool_cf": 17267.66,
   "settings": {
     "surplus_mode": "auto_compound",
     "default_sigma": 0.5,
@@ -1688,6 +1736,14 @@
       "pool_cf_balance": 16895.66,
       "ev_reserve_balance": -15501.17,
       "note": "[Ticker: APLS]"
+    },
+    {
+      "date": "2026-04-13 11:18",
+      "category": "Harvest",
+      "amount": 372.0,
+      "pool_cf_balance": 17267.66,
+      "ev_reserve_balance": -15501.17,
+      "note": "Harvest Profit"
     }
   ],
   "global_ev_reserve": -15501.17
