@@ -1760,7 +1760,39 @@
       "pool_cf_balance": 17267.66,
       "ev_reserve_balance": -15501.17,
       "note": "Harvest Profit"
+    },
+    {
+      "date": "2026-04-16 15:17",
+      "category": "Expense",
+      "amount": -17.0,
+      "pool_cf_balance": 17267.66,
+      "ev_reserve_balance": -15518.17,
+      "note": "Manual Adjustment [Ticker: SG]"
+    },
+    {
+      "date": "2026-04-16 15:27",
+      "category": "Expense",
+      "amount": -55.0,
+      "pool_cf_balance": 17267.66,
+      "ev_reserve_balance": -15573.17,
+      "note": "Manual Adjustment [Ticker: CLSK]"
+    },
+    {
+      "date": "2026-04-16 15:29",
+      "category": "Expense",
+      "amount": -4.0,
+      "pool_cf_balance": 17267.66,
+      "ev_reserve_balance": -15577.17,
+      "note": "Manual Adjustment [Ticker: GERN]"
+    },
+    {
+      "date": "2026-04-16 15:49",
+      "category": "Expense",
+      "amount": -70.0,
+      "pool_cf_balance": 17267.66,
+      "ev_reserve_balance": -15647.17,
+      "note": "Manual Adjustment [Ticker: NVTS]"
     }
   ],
-  "global_ev_reserve": -15501.17
+  "global_ev_reserve": -15647.17
 }
