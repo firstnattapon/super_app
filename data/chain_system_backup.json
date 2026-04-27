@@ -1388,7 +1388,7 @@
       },
       "current_state": {
         "price": 17.5,
-        "fix_c": 3000.0,
+        "fix_c": 2800.0,
         "baseline": 0.0,
         "pool_cf_net": 0.0,
         "cumulative_ev": 1643.86,
@@ -1538,6 +1538,22 @@
           "b_after": 0.0,
           "hedge_ratio": 0.0,
           "round_id": 9
+        },
+        {
+          "date": "2026-04-27 15:16",
+          "action": "Chain Round",
+          "p_old": 17.5,
+          "p_new": 17.5,
+          "c_before": 3000.0,
+          "c_after": 2800.0,
+          "shannon_profit": 0.0,
+          "hedge_cost": 0.0,
+          "surplus": 0.0,
+          "scale_up": -200.0,
+          "b_before": 0.0,
+          "b_after": 0.0,
+          "hedge_ratio": 0.0,
+          "round_id": 10
         }
       ]
     }
