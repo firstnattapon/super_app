@@ -72,6 +72,10 @@ def fetch_yahoo_price(ticker: str) -> tuple:
         if price <= 0:
             return 0.0, f"error: ไม่พบราคาสำหรับ {ticker}"
 
+        # purge stale minute-bucket caches of this ticker — keys accumulate ทุกนาทีถ้าไม่ล้าง
+        for stale_key in [k for k in st.session_state.keys()
+                          if k.startswith(f"_yf_{ticker}_") and k != cache_key]:
+            del st.session_state[stale_key]
         st.session_state[cache_key] = {"price": price, "source": source}
         return float(price), source
 
@@ -102,6 +106,15 @@ def _styled_html(content: str, bg: str = "#1e293b", border: str = "#334155",
         f"{content}</div>"
     )
 
+def _flash(msg: str) -> None:
+    """Queue feedback ให้รอดข้าม st.rerun() — st.success ที่ตามด้วย rerun ทันทีจะไม่ทันแสดงผล"""
+    st.session_state.setdefault("_flash_queue", []).append(msg)
+
+def _show_flashes() -> None:
+    """แสดง flash ที่ค้างอยู่เป็น toast (เรียกครั้งเดียวตอนต้น main)."""
+    for msg in st.session_state.pop("_flash_queue", []):
+        st.toast(msg)
+
 # ============================================================
 # HELPER: Treasury Logging
 # ============================================================
@@ -123,6 +136,7 @@ def log_treasury_event(data: dict, category: str, amount: float, note: str = "")
 # MAIN APPLICATION ENGINE
 # ============================================================
 def main():
+    _show_flashes()
     st.header("⚡ Chain System — Main Engine")
 
     with st.expander("📖 Concept & Formulas", expanded=False):
@@ -165,7 +179,14 @@ def main():
 # ----------------------------------------------------------
 # TAB 1: Active Dashboard Helpers
 # ----------------------------------------------------------
-def _render_portfolio_summary(data: dict, tickers_list: list, df: pd.DataFrame):
+def _grid4(compact: bool = False):
+    """คอลัมน์ 4 ช่อง — แถวเดียวปกติ หรือ 2x2 เมื่ออยู่ในพื้นที่แคบ (กันตัวเลขถูกตัด)"""
+    if not compact:
+        return st.columns(4)
+    row1, row2 = st.columns(2), st.columns(2)
+    return (*row1, *row2)
+
+def _render_portfolio_summary(data: dict, tickers_list: list, df: pd.DataFrame, compact: bool = False):
     total_c = df["Fix_C"].sum()
     total_ev = df["Ev (Extrinsic)"].sum()
     total_lock = df["Lock P&L"].sum()
@@ -175,7 +196,7 @@ def _render_portfolio_summary(data: dict, tickers_list: list, df: pd.DataFrame):
     total_burn = sum(float(t.get("current_state", {}).get("cumulative_ev", 0.0)) for t in tickers_list)
 
     st.subheader("📊 Portfolio Overview")
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4 = _grid4(compact)
     m1.metric("Total Fix_C (Deployed)", f"${total_c:,.0f}", f"{len(tickers_list)} tickers")
     m2.metric("🎱 Pool CF (War Chest)", f"${pool_cf:,.2f}")
     m3.metric("🔥 Burn Rate (Cum. Ev)", f"${total_burn:,.2f}", delta="Cost of Business", delta_color="inverse")
@@ -187,16 +208,15 @@ def _render_portfolio_summary(data: dict, tickers_list: list, df: pd.DataFrame):
     efficiency = (gross_profit / total_burn) if total_burn > 0 else 0.0
     
     st.markdown("#### ⏱️ Ev Efficiency (Winning against Time)")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = _grid4(compact)
     c1.metric("Gross Profit (No Ev)", f"${gross_profit:,.2f}", "Harvest + Shannon")
     c2.metric("Total Burn (Cost)", f"${total_burn:,.2f}", "Cumulative Theta Decay")
     c3.metric("Ev Efficiency Ratio", f"{efficiency:.2f}x", 
               delta="Sustainable" if efficiency >= 1.0 else "Bleeding", delta_color="normal" if efficiency >= 1.0 else "inverse")
     c4.caption("**Ratio > 1.0** = กำไรจากระบบชนะค่าเช่า (Time Decay)\n\n**Ratio < 1.0** = ยังต้องการ Direction ช่วย")
 
-def _render_ticker_cards(tickers_list: list):
+def _render_ticker_cards(tickers_list: list, cols_per_row: int = 4):
     st.subheader("📋 Ticker Status Cards")
-    cols_per_row = 4
     for i in range(0, len(tickers_list), cols_per_row):
         cols = st.columns(cols_per_row)
         for j, col in enumerate(cols):
@@ -234,7 +254,7 @@ def _render_pnl_waterfall(df: pd.DataFrame):
             increasing_marker_color="#00c853", decreasing_marker_color="#ff1744", totals_marker_color="#2196f3",
         ))
         fig_wf.update_layout(title="Portfolio P&L Waterfall", height=380)
-        st.plotly_chart(fig_wf, use_container_width=True)
+        st.plotly_chart(fig_wf, width="stretch")
     except Exception as e:
         st.error(f"⚠️ ไม่สามารถสร้างกราฟ Waterfall ได้: {e}")
 
@@ -378,11 +398,11 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
             st.caption("💡 Preview → syncs Payoff tab")
 
     pnew_key = f"strip_pnew_{idx}"
-    yf_info_key = f"_yf_info_{idx}"
+    yf_info_key = f"_yf_info_{selected_ticker}"
 
     yf_col_btn, yf_col_status = st.columns([2, 8])
     with yf_col_btn:
-        fetch_clicked = st.button("🔄", key=f"yf_fetch_{idx}", use_container_width=True, help="ดึงราคาปัจจุบันจาก Yahoo Finance แล้วเติมลง P New อัตโนมัติ", disabled=not _YF_AVAILABLE)
+        fetch_clicked = st.button("🔄", key=f"yf_fetch_{idx}", width="stretch", help="ดึงราคาปัจจุบันจาก Yahoo Finance แล้วเติมลง P New อัตโนมัติ", disabled=not _YF_AVAILABLE)
     
     with yf_col_status:
         if not _YF_AVAILABLE:
@@ -420,7 +440,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
             ignore_surplus = st.checkbox("No Surplus", value=False, key=f"strip_is_{idx}")
         with sc5:
             st.write("")
-            preview_clicked = st.button("🔍 Preview", type="primary", key=f"strip_preview_{idx}", use_container_width=True)
+            preview_clicked = st.button("🔍 Preview", type="primary", key=f"strip_preview_{idx}", width="stretch")
 
     if preview_clicked and p_new > 0:
         preview = run_chain_round(
@@ -479,19 +499,20 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
 
                 _fline_eq  = f"{_b_old:+.2f} += ({_c_old:,.0f} × ln({_p_new_w:.2f}/{_p_old:.2f})) − ({_c_new_w:,.0f} × ln({_p_new_w:.2f}/{_p_new_w:.2f}))"
                 _fline_meta = f"c = {_c_new_w:,.0f} , t = {_p_new_w:.2f} , b = {_b_calc:.2f}"
-                st.markdown(
-                    f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin:10px 0 2px;font-family:monospace;font-size:13px;color:#94a3b8'>"
+                st.markdown(_styled_html(
                     f"<span style='color:#64748b;font-size:11px'>📐 สมการ Baseline</span><br/>"
                     f"<span style='color:#fbbf24;font-weight:600'>{_fline_eq}</span><br/>"
-                    f"<span style='color:#94a3b8'>{_fline_meta}</span>{_note_sfx}</div>", unsafe_allow_html=True)
+                    f"<span style='color:#94a3b8'>{_fline_meta}</span>{_note_sfx}"
+                ), unsafe_allow_html=True)
 
                 _sh_color = "#34d399" if _sh_term >= 0 else "#f87171"
                 _sh_label = f"Shannon = {_c_old:,.0f} × ln({_p_new_w:.2f} / {_p_old:.2f})  =  ${_sh_term:+,.2f}"
                 _sh_note  = "  · ราคาไม่เปลี่ยน ∴ Shannon = $0" if _price_unchanged else ""
-                st.markdown(
-                    f"<div style='background:#1e293b;border:1px solid #1e3a2f;border-radius:8px;padding:10px 14px;margin:2px 0 4px;font-family:monospace;font-size:13px;color:#94a3b8'>"
+                st.markdown(_styled_html(
                     f"<span style='color:#64748b;font-size:11px'>💰 Shannon Baseline  (fix_c × ln(Pt / P0))</span><br/>"
-                    f"<span style='color:{_sh_color};font-weight:600'>{_sh_label}</span>{_sh_note}</div>", unsafe_allow_html=True)
+                    f"<span style='color:{_sh_color};font-weight:600'>{_sh_label}</span>{_sh_note}",
+                    border="#1e3a2f",
+                ), unsafe_allow_html=True)
 
             # ── Inline Preview Chart: Shannon Baseline (minimal) ──
             orig = _get_original(t_data)
@@ -517,7 +538,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                         xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=8)),
                         yaxis=dict(showgrid=True, gridcolor="rgba(51,65,85,0.4)", zeroline=True, zerolinecolor="#475569", zerolinewidth=0.5, tickfont=dict(size=8)),
                     )
-                    st.plotly_chart(fig_pv, use_container_width=True, key=f"preview_chart_{idx}")
+                    st.plotly_chart(fig_pv, width="stretch", key=f"preview_chart_{idx}")
                     st.markdown(
                         f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;padding:0 4px;margin-top:-8px'>"
                         f"<span style='color:#60a5fa'>● P0 = {P0_orig:.2f}</span>"
@@ -529,7 +550,7 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
 
         btn_col, cnl_col = st.columns([4, 1])
         with btn_col:
-            if st.button("✅ COMMIT — บันทึกถาวร", type="primary", use_container_width=True):
+            if st.button("✅ COMMIT — บันทึกถาวร", type="primary", width="stretch"):
                 rd.update({
                     "shannon_profit": float(new_shannon),
                     "hedge_cost":     float(new_hedge),
@@ -541,10 +562,10 @@ def _render_chain_engine_center(data: dict, tickers_list: list, selected_ticker:
                 })
                 commit_round(data, st.session_state["_pending_ticker_idx"], rd)
                 st.session_state.pop("_pending_round", None)
-                st.success(f"✅ Committed! {selected_ticker} fix_c → ${new_c_after:,.0f}")
+                _flash(f"✅ Committed! {selected_ticker} fix_c → ${new_c_after:,.0f}")
                 st.rerun()
         with cnl_col:
-            if st.button("✖ Cancel", use_container_width=True, key="cancel_preview"):
+            if st.button("✖ Cancel", width="stretch", key="cancel_preview"):
                 st.session_state.pop("_pending_round", None)
                 st.rerun()
     else:
@@ -601,15 +622,29 @@ def _get_original(t_data: dict) -> tuple:
     return None
 
 def _render_center_panels(data: dict, tickers_list: list, active_ticker: str, active_t_data: dict):
-    tab_hist, tab_treasury, tab_pool, tab_deploy = st.tabs(["📜 History", "🏛️ Treasury", "🎱 Pool CF", "🚀 Deploy"])
+    tab_hist, tab_overview, tab_treasury, tab_pool, tab_deploy = st.tabs(
+        ["📜 History", "📊 Overview", "🏛️ Treasury", "🎱 Pool CF", "🚀 Deploy"])
     with tab_hist:
         if active_t_data: _render_consolidated_history(active_t_data)
         else: st.info("เลือก Ticker ที่ Watchlist ก่อน")
+    with tab_overview: _render_portfolio_overview(data, tickers_list)
     with tab_treasury: _render_treasury_log(data, filter_ticker=active_ticker)
     with tab_pool: _render_pool_cf_section(data)
-    with tab_deploy: 
+    with tab_deploy:
         _render_deployment_section(data, tickers_list)
         _render_ev_leaps_section(data)
+
+def _render_portfolio_overview(data: dict, tickers_list: list):
+    """ภาพรวมพอร์ตทั้งหมด: Metrics + Ticker Cards + P&L Waterfall."""
+    df = build_portfolio_df(data)
+    if df.empty:
+        st.info("ยังไม่มี Ticker — เพิ่มที่แท็บ ➕ Manage Data ก่อน")
+        return
+    _render_portfolio_summary(data, tickers_list, df, compact=True)
+    st.divider()
+    _render_ticker_cards(tickers_list, cols_per_row=2)
+    st.divider()
+    _render_pnl_waterfall(df)
 
 def _render_pool_cf_section(data: dict):
     with st.expander('🎱 Pool CF & Allocation', expanded=False):
@@ -633,7 +668,7 @@ def _render_pool_cf_section(data: dict):
                 if selected_ticker and selected_ticker != "None": note_str += f" [Ticker: {selected_ticker}]"
                 log_treasury_event(data, "Funding", amount, note_str)
                 save_trading_data(data)
-                st.success(f"✅ +${amount:,.2f} → Pool CF = ${float(data['global_pool_cf']):,.2f}")
+                _flash(f"✅ +${amount:,.2f} → Pool CF = ${float(data['global_pool_cf']):,.2f}")
                 st.rerun()
 
         st.divider()
@@ -653,7 +688,7 @@ def _render_pool_cf_section(data: dict):
                 if h_ticker and h_ticker != "None": note_str += f" [Ticker: {h_ticker}]"
                 log_treasury_event(data, "Harvest", h_amount, note_str)
                 save_trading_data(data)
-                st.success(f"✅ +${h_amount:,.2f} Harvest → Pool CF = ${float(data['global_pool_cf']):,.2f}")
+                _flash(f"✅ +${h_amount:,.2f} Harvest → Pool CF = ${float(data['global_pool_cf']):,.2f}")
                 st.rerun()
 
         st.divider()
@@ -661,37 +696,42 @@ def _render_pool_cf_section(data: dict):
         eligible_tickers = [t for t in tickers_list if float(t.get("current_state", {}).get("baseline", 0.0)) > 0]
         
         if eligible_tickers:
+            # selectbox อยู่นอก form (แบบเดียวกับ 🚀 Deploy) — ให้ max_value อัปเดตตาม ticker ที่เลือกจริง
+            ext_ticker_name = st.selectbox("Select Ticker", options=[t.get("ticker") for t in eligible_tickers], key="extract_ticker")
+            selected_t_obj = next((t for t in eligible_tickers if t.get("ticker") == ext_ticker_name), None)
+            max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0.0)) if selected_t_obj else 0.0
+
             with st.form("extract_baseline_form", clear_on_submit=True):
                 hc1, hc2 = st.columns([2, 1])
                 with hc1:
-                    ext_ticker_name = st.selectbox("Select Ticker", options=[t.get("ticker") for t in eligible_tickers], key="extract_ticker")
-                    selected_t_obj = next((t for t in eligible_tickers if t.get("ticker") == ext_ticker_name), None)
-                    max_baseline = float(selected_t_obj.get("current_state", {}).get("baseline", 0.0)) if selected_t_obj else 0.0
                     ext_amount = st.number_input("Extract Amount ($)", min_value=0.0, max_value=max_baseline, value=max_baseline, step=100.0, help="ทุน tap — ดึง Baseline (ทุนสะสมที่ scale_up ไว้ใน fix_c) ออกมาใส่ Pool CF โดยไม่กระทบ Position ปัจจุบัน เหมาะใช้เมื่อ Baseline สูงพอที่จะ lock กำไรแล้ว")
                 with hc2:
-                    _vspace(4)
+                    _vspace(2)
                     btn_extract = st.form_submit_button("📥 Extract to Pool CF", type="primary")
-                    
-                if btn_extract and ext_amount > 0 and selected_t_obj:
-                    current_baseline = float(selected_t_obj["current_state"]["baseline"])
+
+            if btn_extract and ext_amount > 0 and selected_t_obj:
+                current_baseline = float(selected_t_obj["current_state"].get("baseline", 0.0))
+                if ext_amount > current_baseline:
+                    st.error(f"❌ Baseline ไม่พอ (มี ${current_baseline:,.2f})")
+                else:
                     selected_t_obj["current_state"]["baseline"] = current_baseline - ext_amount
                     data["global_pool_cf"] = float(data.get("global_pool_cf", 0.0)) + ext_amount
                     log_treasury_event(data, "Baseline Harvest", ext_amount, f"[Ticker: {ext_ticker_name}]")
-                    
+
                     cur_state = selected_t_obj["current_state"]
                     dummy_round = {
-                        "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "action": "Extract Baseline", 
-                        "p_old": float(cur_state.get("price", 0)), "p_new": float(cur_state.get("price", 0)), 
+                        "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "action": "Extract Baseline",
+                        "p_old": float(cur_state.get("price", 0)), "p_new": float(cur_state.get("price", 0)),
                         "c_before": float(cur_state.get("fix_c", 0)), "c_after": float(cur_state.get("fix_c", 0)),
-                        "shannon_profit": 0.0, "harvest_profit": 0.0, "hedge_cost": 0.0, "surplus": 0.0, "scale_up": 0.0, 
-                        "b_before": current_baseline, "b_after": current_baseline - ext_amount, 
+                        "shannon_profit": 0.0, "harvest_profit": 0.0, "hedge_cost": 0.0, "surplus": 0.0, "scale_up": 0.0,
+                        "b_before": current_baseline, "b_after": current_baseline - ext_amount,
                         "note": f"Extracted ${ext_amount:,.2f} to Pool CF",
                         "hedge_ratio": 0.0, "sigma": 0.0, "ev_change": 0.0
                     }
                     if "rounds" not in selected_t_obj: selected_t_obj["rounds"] = []
                     selected_t_obj["rounds"].append(dummy_round)
                     save_trading_data(data)
-                    st.success(f"✅ Extracted ${ext_amount:,.2f} from {ext_ticker_name} Baseline to Pool CF")
+                    _flash(f"✅ Extracted ${ext_amount:,.2f} from {ext_ticker_name} Baseline to Pool CF")
                     st.rerun()
         else:
             st.info("No tickers with a positive Baseline available for extraction.")
@@ -727,18 +767,13 @@ def _render_deployment_section(data: dict, tickers_list: list):
                 d_note = st.text_input("Note (optional)", value="")
             with f2:
                 _vspace(3)
-                submitted = st.form_submit_button("🚀 Deploy to Baseline", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("🚀 Deploy to Baseline", type="primary", width="stretch")
 
         if submitted and d_amt > 0:
             if d_amt > pool_cf:
                 st.error(f"❌ Pool CF ไม่พอ (มี ${pool_cf:,.2f})")
             else:
                 new_b = cur_b + d_amt
-                pc1, pc2, pc3 = st.columns(3)
-                pc1.metric("Pool CF", f"${pool_cf:,.2f}", f"−${d_amt:,.2f}", delta_color="inverse")
-                pc2.metric("Baseline", f"${cur_b:,.2f}", f"+${d_amt:,.2f}", delta_color="normal")
-                pc3.metric("Baseline after", f"${new_b:,.2f}")
-
                 deploy_round = {
                     "date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "action": "Deploy to Baseline",
                     "p_old": cur_t, "p_new": cur_t, "c_before": cur_c, "c_after": cur_c,
@@ -751,9 +786,9 @@ def _render_deployment_section(data: dict, tickers_list: list):
                 t_data_deploy["current_state"]["baseline"] = new_b
                 if "rounds" not in t_data_deploy: t_data_deploy["rounds"] = []
                 t_data_deploy["rounds"].append(deploy_round)
-                log_treasury_event(data, "Deploy", -d_amt, f"Deploy to {deploy_ticker} Baseline{(' | ' + d_note) if d_note else ''}")
+                log_treasury_event(data, "Deploy", -d_amt, f"Deploy to Baseline [Ticker: {deploy_ticker}]{(' | ' + d_note) if d_note else ''}")
                 save_trading_data(data)
-                st.success(f"✅ Deployed ${d_amt:,.2f} → {deploy_ticker} Baseline = ${new_b:,.2f}")
+                _flash(f"✅ Deployed ${d_amt:,.2f} → {deploy_ticker} Baseline ${cur_b:,.2f} → ${new_b:,.2f} · Pool CF เหลือ ${pool_cf - d_amt:,.2f}")
                 st.rerun()
 
 def _render_ev_leaps_section(data: dict):
@@ -772,7 +807,7 @@ def _render_ev_leaps_section(data: dict):
                     data["global_ev_reserve"] = ev_reserve + alloc_amt
                     log_treasury_event(data, "Allocation", alloc_amt, "Pool CF -> EV Reserve")
                     save_trading_data(data)
-                    st.success(f"Allocated ${alloc_amt:,.2f}")
+                    _flash(f"✅ Allocated ${alloc_amt:,.2f} → EV Reserve")
                     st.rerun()
         
         st.divider()
@@ -790,13 +825,16 @@ def _render_ev_leaps_section(data: dict):
         with col_d:
             _vspace(2)
             if st.button("💾 Record Flow"):
-                data["global_ev_reserve"] = ev_reserve + pay_leaps_amt
-                note_str = "Manual Adjustment"
-                if selected_leaps_ticker and selected_leaps_ticker != "None": note_str += f" [Ticker: {selected_leaps_ticker}]"
-                log_treasury_event(data, "Income" if pay_leaps_amt >= 0 else "Expense", pay_leaps_amt, note_str)
-                save_trading_data(data)
-                st.success("Recorded Extrinsic Value adjustment")
-                st.rerun()
+                if pay_leaps_amt == 0:
+                    st.warning("⚠️ ระบุจำนวนเงินก่อน (ค่าบวก = Income, ค่าลบ = Expense)")
+                else:
+                    data["global_ev_reserve"] = ev_reserve + pay_leaps_amt
+                    note_str = "Manual Adjustment"
+                    if selected_leaps_ticker and selected_leaps_ticker != "None": note_str += f" [Ticker: {selected_leaps_ticker}]"
+                    log_treasury_event(data, "Income" if pay_leaps_amt > 0 else "Expense", pay_leaps_amt, note_str)
+                    save_trading_data(data)
+                    _flash(f"✅ Recorded {'Income' if pay_leaps_amt > 0 else 'Expense'} ${abs(pay_leaps_amt):,.2f} → EV Reserve = ${ev_reserve + pay_leaps_amt:,.2f}")
+                    st.rerun()
         
         st.markdown(f"**Current Pool EV LEAPS Balance:** `${ev_reserve:,.2f}`")
 
@@ -833,7 +871,7 @@ def _render_treasury_log(data: dict, filter_ticker: str = ""):
     st.caption(f"แสดง {len(tbl)} รายการ" + (f"  (filter: {sel})" if sel != "🌐 ทั้งหมด" else ""))
     df = pd.DataFrame(tbl)[::-1]
     if sel != "🌐 ทั้งหมด": df = df.drop(columns=["Pool CF", "EV Res"], errors="ignore")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 
 def _render_consolidated_history(t_data: dict):
     st.subheader(f"📜 {t_data.get('ticker','???')} — History")
@@ -848,7 +886,7 @@ def _render_consolidated_history(t_data: dict):
             "Net Result": f"${float(rd.get('surplus',0)):,.2f}"
         } for rd in rounds]
         df = pd.DataFrame(tbl)[::-1]
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.info("No history recorded yet.")
 
@@ -858,13 +896,13 @@ def _render_consolidated_history(t_data: dict):
 def _render_payoff_profile_tab(data: dict):
     tickers_list = get_tickers(data)
     selected_ticker = st.session_state.get("run_round_ticker")
-    t_data = next((t for t in tickers_list if t["ticker"] == selected_ticker), tickers_list[0] if tickers_list else None)
-    
+    t_data = next((t for t in tickers_list if t.get("ticker") == selected_ticker), tickers_list[0] if tickers_list else None)
+
     if not t_data:
         st.info("👈 Please select a Ticker in the 'Engine & History' tab first.")
         return
 
-    st.subheader(f"📐 Advanced Payoff Profile Simulator")
+    st.subheader("📐 Advanced Payoff Profile Simulator")
     st.caption("จำลองโครงสร้างผลตอบแทน (Logarithmic 11-Line Model - React Port)")
 
     cur_state = t_data.get("current_state", {})
@@ -1009,7 +1047,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict
             fig1.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
             fig1.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8, annotation_text="t (current)")
             fig1.update_layout(title="Full Custom Comparison Model", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=600)
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width="stretch")
 
         with tabs_chart[1]:
             fig2 = go.Figure()
@@ -1018,7 +1056,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict
             fig2.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
             fig2.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8)
             fig2.update_layout(title="Net (y3) vs Benchmark", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=500)
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         with tabs_chart[2]:
             fig3 = go.Figure()
@@ -1026,7 +1064,7 @@ def _calculate_and_plot_payoff(def_p: float, def_c: float, req: dict, data: dict
             fig3.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
             fig3.add_vline(x=def_p, line_dash="solid", line_color="#facc15", opacity=0.8)
             fig3.update_layout(title="Delta Log Overlay", xaxis_title="Price (x)", yaxis_title="P/L (y)", height=500)
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
 
         with tabs_chart[3]:
             st.subheader("🔗 Capital Flow — by Ticker (Sankey)")
@@ -1128,7 +1166,7 @@ def _render_sankey_aggregated(ticker_stats: list, data: dict):
         fig.update_layout(title_text="📊 Capital Flow — Portfolio Aggregated",
                           font=dict(size=12, color="#e2e8f0"),
                           paper_bgcolor="#0f172a", height=600)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         m1,m2,m3,m4,m5,m6 = st.columns(6)
         m1.metric("Shannon",     f"${tot_sh:,.0f}")
@@ -1178,7 +1216,7 @@ def _render_sankey_per_ticker(ticker_stats: list):
                         link=dict(source=src2,target=tgt2,value=val2,color=clr2)
                     )])
                     fig_t.update_layout(font=dict(size=10,color="#e2e8f0"), paper_bgcolor="#1e293b", margin=dict(l=10,r=10,t=30,b=10),height=350)
-                    st.plotly_chart(fig_t, use_container_width=True)
+                    st.plotly_chart(fig_t, width="stretch")
                     mc1,mc2,mc3 = st.columns(3)
                     mc1.metric("Shannon",f"${s['shannon']:,.0f}")
                     mc2.metric("fix_c",  f"${s['fix_c']:,.0f}")
@@ -1204,7 +1242,7 @@ def _render_ticker_state_overview(tickers_list: list, data: dict):
             "Rounds":   len(rounds),
         })
     if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 # ----------------------------------------------------------
 # TAB 5: Manage Data
@@ -1227,7 +1265,9 @@ def _render_manage_data(data: dict):
                             "initial_state": {"price": init_price, "fix_c": init_c},
                             "current_state": {
                                 "price": init_price, "fix_c": init_c,
-                                "baseline": init_price, "cumulative_ev": 0.0,
+                                # baseline เริ่มที่ 0.0 เสมอ (สอดคล้องกับ Original "p, c, 0.0")
+                                # — ห้ามใช้ init_price ไม่งั้น Extract Baseline จะดึงเงินที่ไม่เคยมีจริงได้
+                                "baseline": 0.0, "cumulative_ev": 0.0,
                                 "pool_cf_net": 0.0, "surplus_iv": 0.0,
                                 "lock_pnl": 0.0, "net_pnl": 0.0,
                                 "strategy_tags": [],
@@ -1237,7 +1277,7 @@ def _render_manage_data(data: dict):
                         if "tickers" not in data: data["tickers"] = []
                         data["tickers"].append(new_entry)
                         save_trading_data(data)
-                        st.success(f"Added {new_ticker}")
+                        _flash(f"✅ Added {new_ticker}")
                         st.rerun()
                     else:
                         st.error("Ticker นี้มีอยู่แล้วในพอร์ต")
@@ -1272,7 +1312,7 @@ def _render_manage_data(data: dict):
                     sel_t_data_md["Original"] = f"{orig_p0}, {orig_fix_c}, {orig_baseline}"
                     sel_t_data_md["initial_state"] = {"price": orig_p0, "fix_c": orig_fix_c}
                     save_trading_data(data)
-                    st.success(f"✅ บันทึก Original สำหรับ {sel_ticker_md} สำเร็จ!")
+                    _flash(f"✅ บันทึก Original สำหรับ {sel_ticker_md} สำเร็จ!")
                     st.rerun()
         else:
             st.info("ยังไม่มี Ticker — เพิ่มที่ด้านบนก่อน")
@@ -1306,8 +1346,9 @@ def _render_manage_data(data: dict):
                 st.error("❌ กรุณาระบุ URL")
             else:
                 try:
-                    with urllib.request.urlopen(import_url.strip()) as response:
-                        raw_bytes = response.read()
+                    with st.spinner("กำลังดาวน์โหลด..."):
+                        with urllib.request.urlopen(import_url.strip(), timeout=15) as response:
+                            raw_bytes = response.read()
                     url_data = json.loads(raw_bytes.decode("utf-8"))
 
                     if not isinstance(url_data, dict) or "tickers" not in url_data:
@@ -1342,7 +1383,7 @@ def _render_manage_data(data: dict):
                     save_trading_data(url_data)
                     st.session_state.pop("_url_import_data", None)
                     st.session_state.pop("_url_import_src", None)
-                    st.success("✅ นำเข้าข้อมูลจาก URL สำเร็จ! ระบบกำลังรีโหลด...")
+                    _flash("✅ นำเข้าข้อมูลจาก URL สำเร็จ!")
                     st.rerun()
             with cfm_c2:
                 if st.button("✖ ยกเลิก", key="cancel_url_import_btn"):
@@ -1361,7 +1402,7 @@ def _render_manage_data(data: dict):
                     st.warning("⚠️ การ Import จะเป็นการ **เขียนทับข้อมูลปัจจุบัน** ทั้งหมด คุณแน่ใจหรือไม่?")
                     if st.button("✅ Confirm Import", type="primary"):
                         save_trading_data(uploaded_data)
-                        st.success("นำเข้าข้อมูลสำเร็จ! ระบบกำลังรีโหลด...")
+                        _flash("✅ นำเข้าข้อมูลสำเร็จ!")
                         st.rerun()
                 else:
                     st.error("❌ ไฟล์ JSON ไม่ถูกต้อง หรือไม่มีโครงสร้างข้อมูลของระบบ Chain (ขาดคีย์ 'tickers')")
@@ -1372,7 +1413,7 @@ def _render_manage_data(data: dict):
         if st.button("DELETE ALL DATA", type="primary"):
             data.update({"tickers": [], "global_pool_cf": 0.0, "global_ev_reserve": 0.0, "treasury_history": []})
             save_trading_data(data)
-            st.warning("All data cleared!")
+            _flash("🗑️ All data cleared!")
             st.rerun()
 
 if __name__ == "__main__":
