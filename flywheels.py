@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import norm
+import math
 import json
 import os
 import re
@@ -21,6 +21,10 @@ def sanitize_number_str(s: Optional[str]) -> str:
         return ""
     return str(s).replace('\u2212', '-').replace('\u2013', '-').replace('\u2014', '-').replace(',', '').strip()
 
+def _norm_cdf(x: float) -> float:
+    """Standard normal CDF without SciPy's native extension modules."""
+    return 0.5 * (1.0 + math.erf(float(x) / math.sqrt(2.0)))
+
 def black_scholes(S: float, K: float, T: float, r: float, sigma: float, option_type: str = 'call') -> float:
     """Black-Scholes option pricing."""
     if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
@@ -29,9 +33,9 @@ def black_scholes(S: float, K: float, T: float, r: float, sigma: float, option_t
         d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
         if option_type == 'call':
-            return float(S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+            return float(S * _norm_cdf(d1) - K * np.exp(-r * T) * _norm_cdf(d2))
         else:
-            return float(K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
+            return float(K * np.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1))
     except Exception:
         return 0.0
 
