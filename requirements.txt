@@ -1,8 +1,15 @@
-streamlit
-pandas
-numpy
-plotly
-scipy
+# Pinned to a stable, mutually-tested stack. The unpinned data/scientific
+# libraries were resolving to bleeding-edge releases (pandas 3.0, numpy 2.4,
+# pyarrow 25) whose C-extensions segfault inside Streamlit's script thread when
+# a DataFrame is serialized to Arrow (st.dataframe). Do not unpin these — and
+# keep pyarrow pinned explicitly: it is a transitive dependency of streamlit,
+# so without a pin it upgrades back to the crashing version.
+streamlit==1.59.1
+pandas==2.2.3
+numpy==1.26.4
+pyarrow==16.1.0
+scipy==1.13.1
+plotly==5.24.1
 google-genai
 pillow
 yfinance
