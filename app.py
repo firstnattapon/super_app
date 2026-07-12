@@ -2,6 +2,7 @@ import math
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -12,75 +13,90 @@ from datetime import datetime
 st.set_page_config(page_title="Chain System - Main Engine", layout="wide")
 
 # ── Yahoo Finance (optional) ────────────────────────────────────────────
-try:
-    import yfinance as yf
-    _YF_AVAILABLE = True
-except ImportError:
-    _YF_AVAILABLE = False
+# ใช้ Chart API ผ่าน urllib แทน yfinance/curl_cffi เพื่อหลีกเลี่ยง native
+# segmentation faults บน Streamlit Cloud.
+_YF_AVAILABLE = True
 
 
 def fetch_yahoo_price(ticker: str) -> tuple:
-    """ดึงราคาล่าสุดจาก Yahoo Finance พร้อม cache 60 วินาที.
-    Returns (price: float, source: str)
+    """ดึงราคาล่าสุดจาก Yahoo Chart API พร้อม cache 60 วินาที.
+    Returns (price: float, source: str). ผลล้มเหลวถูก cache เช่นกันเพื่อกัน retry storm.
     """
-    if not _YF_AVAILABLE:
-        return 0.0, "error: yfinance ไม่ได้ติดตั้ง — รัน: pip install yfinance"
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return 0.0, "error: กรุณาระบุ ticker"
 
-    cache_key = f"_yf_{ticker}_{int(time.time() // 60)}"
+    cache_key = f"_yf_{symbol}_{int(time.time() // 60)}"
     if cache_key in st.session_state:
         cached = st.session_state[cache_key]
         return cached["price"], cached["source"] + " (cached)"
 
-    try:
-        t_obj = yf.Ticker(ticker)
-        price = 0.0
-        source = ""
+    def _fetch_symbol(candidate: str) -> float:
+        encoded = urllib.parse.quote(candidate, safe=".-^=")
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}"
+            "?range=5d&interval=1d&events=div%2Csplits"
+        )
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ChainSystem/1.0)",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
 
-        # Attempt 1: fast_info 
+        chart = payload.get("chart") or {}
+        if chart.get("error"):
+            return 0.0
+        results = chart.get("result") or []
+        if not results:
+            return 0.0
+
+        result = results[0]
+        meta_price = (result.get("meta") or {}).get("regularMarketPrice")
         try:
-            raw = t_obj.fast_info
-            price = float(getattr(raw, "last_price", 0.0) or 0.0)
-            if price > 0:
-                source = "fast_info"
-        except Exception:
-            pass
+            price = float(meta_price or 0.0)
+        except (TypeError, ValueError):
+            price = 0.0
+        if math.isfinite(price) and price > 0:
+            return price
 
-        # Attempt 2: history 5d
-        if price <= 0:
-            hist = t_obj.history(period="5d")
-            if not hist.empty:
-                price = float(hist["Close"].iloc[-1])
-                source = "history_5d"
-
-        # Attempt 3: Thai stock (.BK)
-        if price <= 0 and "." not in ticker and len(ticker) <= 5:
-            bk_ticker = f"{ticker}.BK"
-            t_bk = yf.Ticker(bk_ticker)
+        quotes = ((result.get("indicators") or {}).get("quote") or [])
+        closes = quotes[0].get("close", []) if quotes else []
+        for close in reversed(closes):
             try:
-                raw_bk = t_bk.fast_info
-                price = float(getattr(raw_bk, "last_price", 0.0) or 0.0)
-                if price > 0:
-                    source = f"fast_info (.BK → {bk_ticker})"
-            except Exception:
-                pass
-            if price <= 0:
-                hist_bk = t_bk.history(period="5d")
-                if not hist_bk.empty:
-                    price = float(hist_bk["Close"].iloc[-1])
-                    source = f"history_5d ({bk_ticker})"
+                price = float(close)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(price) and price > 0:
+                return price
+        return 0.0
 
-        if price <= 0:
-            return 0.0, f"error: ไม่พบราคาสำหรับ {ticker}"
+    candidates = [symbol]
+    if "." not in symbol and len(symbol) <= 5:
+        candidates.append(f"{symbol}.BK")
 
-        # purge stale minute-bucket caches of this ticker — keys accumulate ทุกนาทีถ้าไม่ล้าง
-        for stale_key in [k for k in st.session_state.keys()
-                          if k.startswith(f"_yf_{ticker}_") and k != cache_key]:
-            del st.session_state[stale_key]
-        st.session_state[cache_key] = {"price": price, "source": source}
-        return float(price), source
+    price = 0.0
+    source = f"error: ไม่พบราคาสำหรับ {symbol} — ตรวจสอบ ticker"
+    for candidate in candidates:
+        try:
+            price = _fetch_symbol(candidate)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+                json.JSONDecodeError, OSError):
+            price = 0.0
+        if price > 0:
+            source = f"Yahoo Chart API ({candidate})"
+            break
 
-    except Exception as e:
-        return 0.0, f"error: {str(e)[:60]}"
+    for stale_key in [
+        key for key in list(st.session_state.keys())
+        if key.startswith(f"_yf_{symbol}_") and key != cache_key
+    ]:
+        del st.session_state[stale_key]
+    st.session_state[cache_key] = {"price": float(price), "source": source}
+    return float(price), source
 
 
 from flywheels import (
