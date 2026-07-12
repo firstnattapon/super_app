@@ -2,6 +2,5 @@ streamlit
 pandas
 numpy
 plotly
-scipy
 google-genai
 pillow
