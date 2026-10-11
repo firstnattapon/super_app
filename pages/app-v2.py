@@ -354,6 +354,8 @@ def view_ledger(store, d, t):
             st.success("ข้อมูลที่บันทึกผ่านการตรวจสมการ (⚠️ = ต่างจากสูตร เช่น Override / ข้อมูลเก่า) — ไม่ใช่การรับรองว่าตรงกับ broker")
         else:
             st.error("พบแถวที่ผิดกติกาของระบบ (❌) — ตรวจข้อมูลก่อนเชื่อกราฟ")
+    with st.expander(f"📜 Round log เต็ม ({len(t['rounds'])} รอบ — ทุก field รวม Note)"):   # what the old History view showed
+        table(eng.round_rows(t), ROUND_COLS, height=min(640, 38 + 35 * len(t["rounds"])))
 
 
 # ── 📊 Portfolio ──────────────────────────────────────────────────────────────────

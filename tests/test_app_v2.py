@@ -350,6 +350,13 @@ class AppV2Test(unittest.TestCase):
         self.assertNotIn(evil, doc)                                         # … and never reaches the page unescaped
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", doc)
 
+    def test_ledger_keeps_the_full_round_log_with_notes(self):
+        self.load_sample()
+        at = self.goto(self.pick_ticker(self.start(), "LUNR"), "ledger")
+        self.assert_clean(at)
+        log = next(df.value for df in at.dataframe if {"Note", "P old", "b old"} <= set(df.value.columns))
+        self.assertEqual(len(log), len(self.ticker("LUNR")["rounds"]))      # nothing the old History view showed is lost
+
     def test_ledger_empty_states(self):
         d = {"tickers": []}
         eng.add_ticker(d, "AAA", 10, 1000)                     # a ticker with no rounds at all
