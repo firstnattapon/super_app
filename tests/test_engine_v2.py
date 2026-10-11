@@ -291,6 +291,22 @@ class TestNormalize(unittest.TestCase):
                                            "current_state": {"price": 1, "fix_c": 2, "baseline": 3}}]})
         self.assertEqual(d["tickers"][0]["current_state"]["price"], 1.0)
 
+    def test_repairing_state_from_the_round_log_is_reported(self):
+        rounds = [{"p_new": 7, "c_after": 120, "b_after": 3}]
+        d, warns = eng.normalize({"tickers": [{"ticker": "A", "rounds": rounds,
+                                               "current_state": {"price": 1, "fix_c": 1, "baseline": 1}}]})
+        self.assertEqual(d["tickers"][0]["current_state"]["price"], 7.0)
+        self.assertEqual(len(warns), 1)
+        self.assertIn("A: state ไม่ตรงกับรอบล่าสุด", warns[0])
+        # consistent state → silent (this is every file the app itself writes)
+        d2, warns2 = eng.normalize({"tickers": [{"ticker": "A", "rounds": rounds,
+                                                 "current_state": {"price": 7, "fix_c": 120, "baseline": 3}}]})
+        self.assertEqual(warns2, [])
+        self.assertEqual(eng.normalize(d)[1], [])                      # …and after repair it stays quiet
+
+    def test_api_version_marker(self):
+        self.assertIsInstance(eng.API_VERSION, int)
+
     def test_input_untouched_and_idempotent(self):
         raw = {"version": 2, "tickers": [{"ticker": "A", "rounds": [{"p_new": 5, "c_after": 1, "b_after": 2}]}]}
         frozen = copy.deepcopy(raw)
@@ -452,6 +468,20 @@ class TestViews(unittest.TestCase):
         self.assertEqual(len(eng.round_rows(self.store.read()["tickers"][0], limit=1)), 1)
         legacy, _ = eng.normalize({"tickers": [{"ticker": "L", "rounds": [{"action": None, "p_new": "x"}]}]})
         self.assertEqual(eng.round_rows(legacy["tickers"][0])[0]["P new"], 0.0)
+
+    def test_sparklines_end_at_the_current_state(self):
+        self.assertEqual(eng.sparklines(self.store.read()["tickers"][0]), {})
+        self.commit("AAA", 12)
+        self.commit("AAA", 9)
+        t = self.store.read()["tickers"][0]
+        sp, s = eng.sparklines(t), t["current_state"]
+        self.assertTrue(all(len(v) == len(t["rounds"]) + 1 for v in sp.values()))
+        self.assertEqual((sp["price"][0], sp["price"][-1]), (10.0, 9.0))
+        self.assertEqual((sp["fix_c"][-1], sp["baseline"][-1]), (s["fix_c"], s["baseline"]))
+        self.assertAlmostEqual(sp["ev"][-1], s["cumulative_ev"], places=9)
+        self.assertAlmostEqual(sp["net"][-1], s["net_pnl"], places=9)
+        self.assertEqual(sp["ev"][0], 0.0)                              # nothing burnt before the first round
+        self.assertLess(sp["net"][-1], sp["net"][0] + 1e-9)            # hedge cost only ever lowers Net
 
     def test_capital_flow(self):
         self.commit("AAA", 14, 0.0)           # big up move, no hedge → surplus → scale up

@@ -1,38 +1,61 @@
-"""⚡ Chain System — Main Engine · v2  (simple · stable · fast)
+"""⚡ Chain System — Main Engine · v2  (simple · stable · fast · modern)
 
 Same portfolio file as the original Main Engine (trading_data.json), so there is nothing to migrate.
-  simple — one page, six views, native Streamlit widgets only (no HTML / CSS injection)
+  simple — one page, seven views, native Streamlit widgets (the only iframe is the escaped hover table)
   stable — every write is atomic and all-or-nothing, previews can't go stale, bad data can't crash a view
   fast   — only the selected view runs (no hidden tabs building charts), the data file is parsed once per change
-Logic lives in ``engine_v2.py`` (pure Python, unit-tested: ``python -m unittest discover -s tests``).
+  modern — the LEGO equations (Rₙ · ΔAₙ · Aₙ · Eₙ, β-rollover) as a read-only ledger with "ชี้เมาส์ดูที่มา" tooltips,
+           an integrity audit, a Learn view + Testing Lab, URL-bound navigation (?view=ledger&ticker=LUNR)
+Logic lives in pure, unit-tested modules: ``engine_v2.py`` (Chain Round · Store), ``ledger_v2.py`` (R·A·E),
+``learn_v2.py`` (Learn view) — ``python -m unittest discover -s tests``.
+The modern format and equations follow firstnattapon/streamlit_lego.
 """
+import importlib
 import json
+import math
 import os
 import sys
 import zlib
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 import engine_v2 as eng  # noqa: E402
+import ledger_v2 as led  # noqa: E402
+import learn_v2 as learn  # noqa: E402
+import lego_hover_table as hover  # noqa: E402
+
+
+def _fresh(module, *needed):
+    """Streamlit keeps imported modules alive across reruns, so right after a deploy a stale module can lack the
+    API this page needs (new page + old module → AttributeError). Reload once when something is missing."""
+    return module if all(hasattr(module, name) for name in needed) else importlib.reload(module)
+
+
+eng = _fresh(eng, "API_VERSION", "sparklines", "plan_round", "apply_round", "Store")
+led = _fresh(led, "build", "explain", "integrity", "break_even", "simulate_chain", "TIP_COLS")
+learn = _fresh(learn, "render")
+hover = _fresh(hover, "build_hover_table_html", "hover_table_height")
 
 st.set_page_config(page_title="Chain System v2", page_icon="⚡", layout="wide")
 
 DATA_FILE = os.environ.get("CHAIN_V2_DATA_FILE") or str(ROOT / "trading_data.json")
 DEFAULT_IMPORT_URL = ("https://raw.githubusercontent.com/firstnattapon/super_app/"
                       "refs/heads/main/data/chain_system_backup.json")
-VIEWS = ["⚡ Engine", "📜 History", "📊 Portfolio", "🏛️ Treasury", "📐 Payoff", "➕ Data"]
+VIEWS = {"engine": "⚡ Engine", "ledger": "🧬 Ledger", "portfolio": "📊 Portfolio", "treasury": "🏛️ Treasury",
+         "payoff": "📐 Payoff", "learn": "🎓 Learn", "data": "➕ Data"}
 
 money = eng.money
 CC = st.column_config
 
 
 @st.cache_resource(show_spinner=False)
-def get_store(path: str) -> eng.Store:
+def get_store(path: str, api: int) -> eng.Store:   # ``api`` keys the cache so a new engine never reuses an old Store
     return eng.Store(path)
 
 
@@ -73,7 +96,55 @@ def attempt(write, ok: str) -> None:
 
 
 def run(fn, ok: str) -> None:
-    attempt(lambda: get_store(DATA_FILE).update(fn), ok)
+    attempt(lambda: get_store(DATA_FILE, eng.API_VERSION).update(fn), ok)
+
+
+def sg(x: float) -> str:
+    """Signed money: +$12.00 / -$3.00."""
+    return ("+" if x > 0 else "") + money(x)
+
+
+def compact(x: float) -> str:
+    """Headline-card money: whole dollars from $1,000 up (so a 5-column row never truncates), cents below."""
+    return f"{'-' if x < 0 else ''}${abs(x):,.0f}" if abs(x) >= 1000 else money(x)
+
+
+def embed_html(html: str, height: int) -> None:
+    """Raw-HTML iframe: ``st.iframe`` on current Streamlit, ``components.html`` (deprecated) on older versions."""
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:  # pragma: no cover — only for older Streamlit
+        import streamlit.components.v1 as components
+        components.html(html, height=height)
+
+
+def theme() -> str | None:
+    """'light' / 'dark' for components that draw their own colours (None = follow the browser)."""
+    try:
+        t = st.context.theme
+        return getattr(t, "type", None) or t.get("type")
+    except Exception:  # noqa: BLE001 — theme is cosmetic; never break the page for it
+        return None
+
+
+def url_seed(key: str, param: str, valid: list, default) -> None:
+    """Before a widget is drawn: the first run takes ``?param=`` from the URL when it is a valid option; a stale
+    value (e.g. the ticker was deleted) falls back to the default. (Streamlit's ``bind="query-params"`` expects the
+    *formatted* labels once a ``format_func`` is used, so deep links are synced by hand with clean ids.)"""
+    cur = st.session_state.get(key)
+    if cur not in valid:
+        url = st.query_params.get(param) if cur is None else None
+        st.session_state[key] = url if url in valid else default
+
+
+def url_publish(param: str, value, default) -> None:
+    """After the widget: mirror its value into the URL (the default is omitted to keep links short)."""
+    want = None if value is None or value == default else str(value)
+    if st.query_params.get(param) != want:
+        if want is None:
+            del st.query_params[param]
+        else:
+            st.query_params[param] = want
 
 
 def chip(t: dict) -> str:
@@ -94,16 +165,34 @@ MONEY_COLS = {c: usd(c) for c in ("Amount", "Pool CF", "EV Reserve")}
 def view_engine(store, d, t):
     if not t:
         return st.info("ยังไม่มี ticker — เพิ่มที่แท็บ ➕ Data หรือ Import ข้อมูล")
-    s = t["current_state"]
+    s, sp = t["current_state"], eng.sparklines(t)
+
+    def kpi(col, label, value, key, fmt=None, inverse=False):   # sparkline + change since the first round
+        fmt = fmt or (lambda x: ("+" if x > 0 else "") + compact(x))
+        series = sp.get(key)
+        if series and len(series) >= 2:
+            diff = series[-1] - series[0]
+            moved = abs(diff) >= 0.005
+            col.metric(label, value, fmt(diff), chart_data=series, border=True,
+                       delta_color=("inverse" if inverse else "normal") if moved else "off",
+                       delta_arrow="auto" if moved else "off")
+        else:
+            col.metric(label, value, border=True)
+
     c = st.columns(5)
-    c[0].metric("Price", px(s["price"]))
-    c[1].metric("fix_c", money(s["fix_c"]))
-    c[2].metric("Baseline", money(s["baseline"]))
-    c[3].metric("🔥 Ev burn", money(s["cumulative_ev"]))
-    c[4].metric("Net P&L", money(s["net_pnl"]))
+    kpi(c[0], "Price", px(s["price"]), "price", lambda x: f"{x:+,.4g}")
+    kpi(c[1], "fix_c", compact(s["fix_c"]), "fix_c")
+    kpi(c[2], "Baseline", compact(s["baseline"]), "baseline")
+    kpi(c[3], "🔥 Ev burn", compact(s["cumulative_ev"]), "ev", inverse=True)
+    kpi(c[4], "Net P&L", compact(s["net_pnl"]), "net")
+    st.caption("ลูกศร / เส้นเล็ก = เปลี่ยนไปตั้งแต่รอบแรก · ตัวเลขใหญ่ปัดเป็นดอลลาร์เต็มให้พอดีการ์ด (ค่าเต็มดูที่ 🧬 Ledger)")
+    S = led.build(t)["summary"]
+    if S["acts"]:
+        st.caption(esc(f"🧬 Rₙ {sg(S['R'])} · Aₙ {sg(S['A'])} · **Eₙ {sg(S['E'])} (กำไร harvest จริง)** · "
+                       f"Σ Hedge {money(S['hedge'])} · ดูที่มาในแท็บ 🧬 Ledger"))
     if (out := eng.withdrawn_baseline(t)) > 0:
         st.caption(esc(f"📥 Withdraw_b — Baseline ที่ดึงออกไปแล้ว: {money(out)}"))
-    left, right = st.columns([3, 2], gap="large")
+    left, right = st.columns([11, 9], gap="large")
     with left:
         order_panel(d, t)
     with right:
@@ -180,7 +269,6 @@ def order_panel(d: dict, t: dict) -> None:
         st.info("fix_c = 0 — รอบนี้ไม่มี Shannon/Hedge · ใช้ Override → fix_c after เพื่อเปิด position ใหม่")
 
     c0, c1, b0, b1, p0, p1 = (plan[x] for x in ("c_before", "c_after", "b_before", "b_after", "p_old", "p_new"))
-    sg = lambda x: ("+" if x > 0 else "") + money(x)                                    # noqa: E731
     dl = lambda x, f=money: "–" if abs(x) < 0.005 else (                                 # noqa: E731
         f":{'green' if x > 0 else 'red'}[{'+' if x > 0 else ''}{f(x)}]")
     st.markdown(esc(
@@ -190,6 +278,10 @@ def order_panel(d: dict, t: dict) -> None:
         f"| **fix_c** | {money(c0)} | **{money(c1)}** | {dl(c1 - c0)} |\n"
         f"| **Baseline** | {money(b0)} | **{money(b1)}** | {dl(b1 - b0)} |\n"
         f"| **Price t** | {px(p0)} | **{px(p1)}** | {dl(p1 - p0, lambda x: f'{x:,.4g}')} |"))
+    lens = []
+    if p0 > 0 and c0 > 0:   # the same round through the LEGO lens: ΔA is the cash of the rebalance, ΔE = ΔA − ΔR
+        dA, dR = c0 * (p1 / p0 - 1), c0 * math.log(p1 / p0)
+        lens = [f"ΔA      = c × (P/t − 1) = {c0:,.2f} × ({p1:g}/{p0:g} − 1) = {sg(dA)}   →   ΔE = ΔA − Shannon = {sg(dA - dR)}"]
     st.code("\n".join([
         f"Shannon = {c0:,.2f} × ln({p1:g} / {p0:g}) = {money(plan['shannon_profit'])}" if p0 > 0
         else "Shannon = 0   (ยังไม่มีราคาเดิม)",
@@ -197,6 +289,7 @@ def order_panel(d: dict, t: dict) -> None:
         f" = {money(plan['surplus'])}",
         f"fix_c'  = {money(c0)} + {money(plan['scale_up'])} = {money(c1)}",
         f"b'      = {b0:,.2f} + {plan['shannon_profit']:,.2f} = {b1:,.2f}   (t' = P ⇒ c'·ln(P/t') = 0)",
+        *lens,
     ]), language=None, wrap_lines=True)
     if overridden:
         st.caption("✏️ ใช้ตัวเลข Override บางส่วน")
@@ -207,16 +300,62 @@ def order_panel(d: dict, t: dict) -> None:
         run(lambda d_: eng.apply_round(d_, name, plan), f"✅ Committed {name}: fix_c → {money(plan['c_after'])}")
 
 
-# ── 📜 History ────────────────────────────────────────────────────────────────────
-def view_history(store, d, t):
+# ── 🧬 Ledger ─────────────────────────────────────────────────────────────────────
+def view_ledger(store, d, t):
     if not t:
         return st.info("ยังไม่มี ticker")
-    rows = eng.round_rows(t)
-    st.subheader(f"📜 {t['ticker']} — History ({len(rows)} rounds)")
-    if rows:
-        table(rows, ROUND_COLS, height=min(640, 38 + 35 * len(rows)))
+    L = led.build(t)
+    S = L["summary"]
+    st.subheader(f"🧬 {t['ticker']} — Ledger · สมการ LEGO (Rₙ · ΔAₙ · Aₙ · Eₙ)")
+    if not L["rows"]:
+        return st.info("ยังไม่มี round")
+    m = st.columns(5)
+    m[0].metric("Rₙ อ้างอิง", money(S["R"]), help="Σ Fix_c·ln(P_fill/P_acted) — ทุน × เทรนด์ (= เส้นอ้างอิง)")
+    m[1].metric("Aₙ เงินสดสะสม", money(S["A"]), help="Σ Fix_c·(P_fill/P_acted − 1) — ยังปนเทรนด์ อ่านเป็นกำไรตรง ๆ ไม่ได้")
+    m[2].metric("Eₙ กำไร harvest จริง", money(S["E"]), help="Aₙ − Rₙ ≥ 0 — ตัดเทรนด์ทิ้ง ไม่ลดลง")
+    m[3].metric("Σ Hedge (รอบที่จด)", money(S["hedge"]))
+    m[4].metric("E − Σ Hedge", money(S["e_minus_hedge"]), help="กำไร harvest จริงหลังหักค่าประกันที่จดไว้")
+    notes = []
+    if S["p0"]:
+        notes.append(f"P₀ = {S['p0']:g} (P_acted ของ Chain Round แรก — E เริ่มนับจาก 0 ที่นี่)")
+    if S["legacy"]:
+        notes.append(f"Legacy Rollover {S['legacy']} แถวไม่นับใน R·A·E (ไม่มีราคา fill ต่อก้าว · LEGO: ไม่เดาสูตรให้หลักฐานเก่า)")
+    if notes:
+        st.caption(" · ".join(notes))
+    if not S["acts"]:
+        st.info("ยังไม่มี Chain Round — ledger เริ่มนับที่ Chain Round แรก")
     else:
-        st.info("ยังไม่มี round")
+        st.line_chart(pd.DataFrame(led.series(L), index=[x["n"] for x in L["rows"]]).rename_axis("ลำดับรอบ"))
+
+    hover_on = st.toggle("🖱️ ชี้เมาส์ที่ตัวเลข (Shannon · Hedge · Surplus · fix_c′ · b′ · Rₙ · ΔAₙ · Aₙ · Eₙ) เพื่อดูที่มา",
+                         value=True, key="ledger_hover", help="ปิดเพื่อใช้ตารางแบบเรียงได้ (st.dataframe) — แต่ไม่มี tooltip ที่มา")
+    frame = pd.DataFrame(led.table(L))
+    for col in led.MONEY_COLS:
+        frame[col] = frame[col].astype(float).round(2)
+    shown = False
+    if hover_on:
+        try:
+            embed_html(hover.build_hover_table_html(frame, led.explain(L, t["ticker"]), led.TIP_COLS,
+                                                    led.MONEY_COLS, theme=theme()),
+                       hover.hover_table_height(len(frame)))
+            st.caption("ชี้เมาส์ (หรือกด Tab) ที่ตัวเลข — tooltip แสดงสูตรพร้อมแทนค่าจริงของแถวนั้น "
+                       "(ตารางปัด 2 ตำแหน่ง ส่วน tooltip แสดง 4 ตำแหน่ง · ⚠️ = ต่างจากสูตร เช่น Override / ข้อมูลเก่า)")
+            shown = True
+        except Exception as exc:  # noqa: BLE001 — the tooltip table is an extra; never lose the main table
+            st.warning(f"สร้างตารางแบบชี้เมาส์ไม่ได้ ({type(exc).__name__}: {exc}) — แสดงตารางปกติแทน")
+    if not shown:
+        st.dataframe(frame, hide_index=True, width="stretch",
+                     column_config={c: CC.NumberColumn(c, format="%.2f") for c in led.MONEY_COLS})
+
+    with st.expander("🔎 Integrity check — สมการ Chain (C1–C8)", expanded=False):
+        report, ok = led.integrity(t, L)
+        st.dataframe(report, hide_index=True, width="stretch")
+        if ok:
+            st.success("ข้อมูลที่บันทึกผ่านการตรวจสมการ (⚠️ = ต่างจากสูตร เช่น Override / ข้อมูลเก่า) — ไม่ใช่การรับรองว่าตรงกับ broker")
+        else:
+            st.error("พบแถวที่ผิดกติกาของระบบ (❌) — ตรวจข้อมูลก่อนเชื่อกราฟ")
+    with st.expander(f"📜 Round log เต็ม ({len(t['rounds'])} รอบ — ทุก field รวม Note)"):   # what the old History view showed
+        table(eng.round_rows(t), ROUND_COLS, height=min(640, 38 + 35 * len(t["rounds"])))
 
 
 # ── 📊 Portfolio ──────────────────────────────────────────────────────────────────
@@ -224,19 +363,27 @@ def view_portfolio(store, d, t):
     if not d["tickers"]:
         return st.info("ยังไม่มี ticker")
     tot = eng.totals(d)
-    c = st.columns(5)
+    sums = [led.build(x)["summary"] for x in d["tickers"]]
+    c = st.columns(3)
     c[0].metric("Total Fix_C", money(tot["fix_c"]))
     c[1].metric("🔥 Burn (Cum. Ev)", money(tot["burn"]))
     c[2].metric("Gross (Lock + IV)", money(tot["gross"]))
     eff = tot["efficiency"]
     verdict = "" if eff is None else (" · Sustainable ✅" if eff >= 1 else " · Bleeding 🩸")
-    c[3].metric(f"Ev Efficiency{verdict}", "—" if eff is None else f"{eff:.2f}x",
+    c = st.columns(3)
+    c[0].metric(f"Ev Efficiency{verdict}", "—" if eff is None else f"{eff:.2f}x",
                 help="(Lock P&L + Surplus IV) ÷ Burn — ≥ 1.0 = กำไรชนะค่าเช่าเวลา (Time Decay)")
-    c[4].metric("💰 Net P&L", money(tot["net"]))
-    table(eng.portfolio_rows(d), {"Price": CC.NumberColumn("Price", format="%.6g"),
-                                  "Rounds": CC.NumberColumn("Rounds", format="%d"),
-                                  **{x: usd(x) for x in ("fix_c", "Baseline", "Ev burn", "Lock P&L",
-                                                         "Surplus IV", "Net P&L")}})
+    c[1].metric("💰 Net P&L", money(tot["net"]))
+    c[2].metric("🧬 Σ Eₙ กำไร harvest จริง", money(sum(x["E"] for x in sums)),
+                help="Σ (Aₙ − Rₙ) ของทุก ticker จาก Chain Round — สมการ LEGO (ไม่รวม Legacy Rollover)")
+    rows = eng.portfolio_rows(d)
+    for row, x, S in zip(rows, d["tickers"], sums):
+        trend = eng.sparklines(x).get("fix_c")
+        row["Eₙ harvest"], row["fix_c trend"] = S["E"], (trend if trend and len(trend) >= 2 else None)
+    table(rows, {"Price": CC.NumberColumn("Price", format="%.6g"),
+                 "Rounds": CC.NumberColumn("Rounds", format="%d"),
+                 "fix_c trend": CC.LineChartColumn("fix_c trend", width="small"),
+                 **{x: usd(x) for x in ("fix_c", "Baseline", "Ev burn", "Lock P&L", "Surplus IV", "Net P&L", "Eₙ harvest")}})
     import plotly.graph_objects as go   # charts are only built in the views that show them
 
     adj = tot["net"] - (tot["gross"] - tot["burn"])
@@ -475,6 +622,17 @@ def view_data(store, d, t):
                 run(lambda d_: eng.add_ticker(d_, sym, price, fix_c), f"✅ Added {sym.strip().upper()}")
     with st.expander("💾 Export / Import", expanded=bool(st.session_state.get("_v2_import"))):
         import_export(store, d)
+    with st.expander("🔎 Integrity ทุก ticker (สมการ Chain C1–C8)"):
+        audit = []
+        for x in d["tickers"]:
+            checks, ok = led.integrity(x)
+            marks = [c["ผ่าน"] for c in checks]
+            audit.append({"Ticker": x["ticker"], "รอบ": len(x["rounds"]), "✅": marks.count(led.OK),
+                          "⚠️": marks.count(led.WARN), "❌": marks.count(led.FAIL),
+                          "สถานะ": "❌ ผิดกติกา" if not ok else ("⚠️ มีส่วนต่างจากสูตร" if led.WARN in marks else "✅ ผ่าน")})
+        table(audit) if audit else st.caption("ยังไม่มี ticker")
+        st.caption("⚠️ = Override / ข้อมูล legacy / ลูกโซ่ขาดตอน (ดูรายละเอียดที่แท็บ 🧬 Ledger) · "
+                   "❌ = ผิดกติกาที่ระบบเขียนเองไม่ควรเกิด")
     with st.expander("↩️ Restore เวอร์ชันก่อนหน้า"):
         when = store.backup_time()
         if when:
@@ -494,17 +652,21 @@ def view_data(store, d, t):
     st.caption(f"💾 {store.path}")
 
 
-VIEW_FNS = {"⚡ Engine": view_engine, "📜 History": view_history, "📊 Portfolio": view_portfolio,
-            "🏛️ Treasury": view_treasury, "📐 Payoff": view_payoff, "➕ Data": view_data}
+def view_learn(store, d, t):
+    learn.render(theme())
+
+
+VIEW_FNS = {"engine": view_engine, "ledger": view_ledger, "portfolio": view_portfolio, "treasury": view_treasury,
+            "payoff": view_payoff, "learn": view_learn, "data": view_data}
 
 
 # ── page ──────────────────────────────────────────────────────────────────────────
 def main() -> None:
-    store = get_store(DATA_FILE)
+    store = get_store(DATA_FILE, eng.API_VERSION)
     if msg := st.session_state.pop("_v2_flash", None):
         st.toast(msg)
     st.header("⚡ Chain System — Main Engine · v2")
-    st.caption("simple · stable · fast — ใช้ข้อมูลชุดเดียวกับหน้า Main Engine เดิม")
+    st.caption("simple · stable · fast · modern — ใช้ข้อมูลชุดเดียวกับหน้า Main Engine เดิม · สมการ R·A·E ตาม streamlit_lego")
     try:
         d = store.read()
     except eng.DataError as e:
@@ -524,6 +686,7 @@ def main() -> None:
                     "**ขาลง:** Put ระเบิดกำไร → **Pool CF** → Deploy (เมื่อ Regime กลับ) + Reserve")
         st.latex(r"\text{Shannon}=c\ln\frac{P}{t}\qquad \text{Surplus}=\text{Shannon}-\text{Hedge}"
                  r"\qquad b'=b+c\ln\frac{P}{t}-c'\ln\frac{P}{t'}")
+        st.markdown("**อ่านกำไรจริงที่ Eₙ = Aₙ − Rₙ ≥ 0** (Shannon ของ Chain คือฝั่ง R) — ดู 🧬 Ledger · 🎓 Learn")
 
     tot = eng.totals(d)
     k = st.columns(4)
@@ -533,20 +696,24 @@ def main() -> None:
     k[3].metric("💵 Cash (Pool + Reserve)", money(tot["cash"]), border=True)
 
     by_name = {x["ticker"]: x for x in d["tickers"]}
-    if by_name and st.session_state.get("v2_ticker") not in by_name:   # first load → first active (fix_c > 0) ticker
-        st.session_state["v2_ticker"] = next((n for n, x in by_name.items() if x["current_state"]["fix_c"] >= 1),
-                                             next(iter(by_name)))
+    names = list(by_name)
+    first_active = next((n for n, x in by_name.items() if x["current_state"]["fix_c"] >= 1), names[0] if names else None)
+    url_seed("v2_ticker", "ticker", names, first_active)       # /app-v2?view=ledger&ticker=LUNR is a shareable deep link
+    url_seed("v2_view", "view", list(VIEWS), "engine")
     pick, nav = st.columns([1, 3], vertical_alignment="center")
     with pick:
-        name = st.selectbox("Ticker", list(by_name), key="v2_ticker", label_visibility="collapsed",
-                            format_func=lambda n: chip(by_name[n]), placeholder="ยังไม่มี ticker") if by_name else None
+        name = st.selectbox("Ticker", names, key="v2_ticker", label_visibility="collapsed",
+                            format_func=lambda n: chip(by_name[n])) if names else None
     with nav:
-        view = st.radio("View", VIEWS, horizontal=True, key="v2_view", label_visibility="collapsed")
+        view = st.segmented_control("View", list(VIEWS), format_func=VIEWS.get, required=True, key="v2_view",
+                                    label_visibility="collapsed")
+    url_publish("ticker", name, first_active)
+    url_publish("view", view, "engine")
 
     try:   # one broken view must never take the whole page down
         VIEW_FNS[view](store, d, by_name.get(name))
     except Exception as e:  # noqa: BLE001
-        st.error(f"⚠️ {view}: {type(e).__name__}: {e}")
+        st.error(f"⚠️ {VIEWS.get(view, view)}: {type(e).__name__}: {e}")
         with st.expander("รายละเอียด"):
             st.exception(e)
 

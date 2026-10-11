@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+API_VERSION = 3   # bump when pages/app-v2.py needs a newer engine (keys the cached Store, see hot-deploy guard)
+
 # ── Hedge model (same constants as v1 ``flywheels.run_chain_round``) ─────────
 HEDGE_STRIKE = 0.9   # Put strike = 90% of the current price (OTM 10%)
 HEDGE_SIGMA = 0.5
@@ -347,6 +349,25 @@ def portfolio_rows(d: dict) -> list[dict]:
     return rows
 
 
+def sparklines(t: dict) -> dict[str, list[float]]:
+    """Price / fix_c / baseline / Ev burn / Net after every round (first point = before the first round).
+
+    Ev and Net are rebuilt backwards from today's state with the rule Commit uses (Ev += ev_change,
+    Net −= ev_change), so the last point always equals the current state. ``{}`` before the first round.
+    """
+    rs, s = t["rounds"], t["current_state"]
+    if not rs:
+        return {}
+    first = rs[0]
+    ev = [s["cumulative_ev"] - sum(num(r.get("ev_change")) for r in rs)]
+    for r in rs:
+        ev.append(ev[-1] + num(r.get("ev_change")))
+    return {"price": [num(first.get("p_old"))] + [num(r.get("p_new")) for r in rs],
+            "fix_c": [num(first.get("c_before"))] + [num(r.get("c_after")) for r in rs],
+            "baseline": [num(first.get("b_before"))] + [num(r.get("b_after")) for r in rs],
+            "ev": ev, "net": [s["net_pnl"] + (s["cumulative_ev"] - e) for e in ev]}
+
+
 def capital_flow(d: dict, names: Optional[list[str]] = None) -> tuple[list[str], list[tuple]]:
     """Aggregated Sankey data: (node labels, [(source, target, value, label)])."""
     keys = ("shannon_profit", "harvest_profit", "hedge_cost", "scale_up")
@@ -449,7 +470,7 @@ def _legacy_state(t: dict) -> tuple:
     return (0.0, 0.0, 0.0)
 
 
-def _normalize_ticker(t: dict) -> None:
+def _normalize_ticker(t: dict, warns: Optional[list] = None) -> None:
     rounds = t.get("rounds")
     rounds = [r for r in rounds if isinstance(r, dict)] if isinstance(rounds, list) else []
     t["rounds"] = rounds
@@ -464,6 +485,11 @@ def _normalize_ticker(t: dict) -> None:
     if rounds:   # the round log is the source of truth (same rule as v1 auto-repair)
         p, c, b = (num(rounds[-1].get(k), None) for k in ("p_new", "c_after", "b_after"))
         if p is not None and c is not None and b is not None and p > 0:
+            if warns is not None and not (math.isclose(cs["price"], p, abs_tol=6e-5)
+                                          and math.isclose(cs["fix_c"], max(0.0, c), abs_tol=5.1e-3)
+                                          and math.isclose(cs["baseline"], b, abs_tol=5.1e-3)):
+                warns.append(f"{t.get('ticker')}: state ไม่ตรงกับรอบล่าสุด — ใช้ค่าจากรอบล่าสุด "
+                             f"(P {p:g} · fix_c {max(0.0, c):,.2f} · b {b:,.2f})")
             cs.update(price=p, fix_c=max(0.0, c), baseline=b)
     t["current_state"] = cs
 
@@ -504,7 +530,7 @@ def normalize(raw: Any) -> tuple[dict, list[str]]:
             warns.append(f"ชื่อ ticker ซ้ำ/ว่างในรายการที่ {i} → ใช้ “{name}”")
         seen.add(name.upper())
         t["ticker"] = name
-        _normalize_ticker(t)
+        _normalize_ticker(t, warns)
         d["tickers"].append(t)
     return d, warns
 
