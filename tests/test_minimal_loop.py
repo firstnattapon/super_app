@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
+import chain_v3 as cv                        # noqa: E402
 import engine_v2 as eng                       # noqa: E402
 import ledger_v2 as led                       # noqa: E402
 from test_system_flowchart import parse       # noqa: E402
@@ -102,6 +103,34 @@ class MinimalLoopTest(unittest.TestCase):
                           ("③ only surplus (no max 0)", {"shrink": True}), ("④ grow", {"skip": "grow"}),
                           ("⑤ re-center", {"skip": "recenter"})):
             self.assertGreater(abs(loop(100.0, picked, 1500.0, 1.0, **kw)["c"][-1] - full["c"][-1]), 1.0, label)
+
+
+class ChainV3AgreesTest(unittest.TestCase):
+    """app-v3 runs on chain_v3.py — its own few lines, none of engine_v2 — and lands on the same numbers as the engine."""
+
+    def test_round_by_round_to_the_cent(self):
+        for seed, hx, every, prices in paths():
+            sim, picked = engine(100.0, prices, 1500.0, hx, every)
+            rounds = [r for r in sim["ticker"]["rounds"] if r["action"] == "Chain Round"]
+            self.assertEqual(len(rounds), len(picked))
+            c, t = 1500.0, 100.0
+            for p, r in zip(picked, rounds):
+                pl = cv.plan(c, t, p, hx)
+                for mine, theirs in (("H", "shannon_profit"), ("K", "hedge_cost"), ("S", "surplus"), ("c_after", "c_after")):
+                    self.assertAlmostEqual(pl[mine], r[theirs], delta=CENT, msg=(seed, hx, every, p, mine))
+                c, t = r["c_after"], p                     # continue from the engine's own state: one round at a time
+
+    def test_the_whole_path_ends_in_the_same_place(self):
+        for seed, hx, every, prices in paths():
+            sim, picked = engine(100.0, prices, 1500.0, hx, every)
+            c, t, h, k = 1500.0, 100.0, 0.0, 0.0
+            for p in picked:
+                pl = cv.plan(c, t, p, hx)
+                c, t, h, k = pl["c_after"], p, h + pl["H"], k + pl["K"]
+            tol, tag = CENT * len(picked), (seed, hx, every)
+            self.assertAlmostEqual(c, sim["final_fix_c"], delta=tol, msg=tag)                                # fix_c
+            self.assertAlmostEqual(h, sum(r["shannon_profit"] for r in sim["ticker"]["rounds"]), delta=tol, msg=tag)   # ΣH
+            self.assertAlmostEqual(k, sim["ev_burn"], delta=tol, msg=tag)                                    # ΣK = Ev burn
 
 
 class MinimalChartTest(unittest.TestCase):

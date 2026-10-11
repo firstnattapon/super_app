@@ -1,0 +1,4 @@
+__pycache__/
+# app-v3 keeps your rounds in its own file (plus temp / moved-aside copies) — personal data, never commit it
+data/app_v3.json
+data/app_v3.json.*
