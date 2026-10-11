@@ -4,6 +4,7 @@
 > เอา **กำไรจากความแกว่งของราคา → จ่ายค่าประกัน → ที่เหลือไปขยายทุนรอบหน้า** วนเป็นลูกโซ่ (Chain)
 > v2 = หน้าใหม่ที่ **ง่าย · นิ่ง · เร็ว · ทันสมัย** กว่าเดิม — สูตรเดิม ข้อมูลชุดเดิม (`trading_data.json`)
 > ทันสมัย = มี **🧬 Ledger** (สมการ `Rₙ · ΔAₙ · Aₙ · Eₙ` ตาม [streamlit_lego](https://github.com/firstnattapon/streamlit_lego) + ชี้เมาส์ดูที่มาของทุกตัวเลข) และ **🎓 Learn** (สมการ · แผนภาพ · Testing Lab)
+> 🗺️ **แผนผังทั้งระบบ + หลักการ + เป้าหมายสูงสุด** เป็น flowchart ตัวเดียว: [`app_v2_system.mmd`](app_v2_system.mmd) (วางที่ [mermaid.live](https://mermaid.live) ได้เลย)
 
 ---
 
@@ -242,5 +243,6 @@ flowchart LR
 | 4 | **Continuous Rollover** | re-center ราคาแล้ว Baseline ไม่ขาดตอน |
 | 5 | **Cash Lanes** | Baseline ⇄ Pool CF → EV Reserve — แยกกระเป๋าชัด |
 | 6 | **Ev Efficiency** | กำไรต้องชนะค่าเช่าเวลา (≥ 1) |
-| 7 | **Atomic & stale-proof (v2)** | เขียนไฟล์ทั้งก้อนหรือไม่เขียนเลย · แผนเก่า commit ไม่ได้ |
+| 7 | **Atomic + stale-proof (v2)** | เขียนไฟล์ทั้งก้อนหรือไม่เขียนเลย · แผนเก่า commit ไม่ได้ |
 | 8 | **อ่านกำไรที่ `E` (R·A·E)** | `Eₙ = Aₙ − Rₙ ≥ 0` — ตัดเทรนด์ทิ้ง เหลือกำไรจากการแกว่งล้วนๆ |
+| 9 | **Human-in-the-loop** | ดูตัวอย่าง → แก้ (Override) → กด Commit เอง — ไม่ commit อัตโนมัติ |
