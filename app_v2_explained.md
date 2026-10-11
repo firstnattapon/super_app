@@ -4,7 +4,7 @@
 > เอา **กำไรจากความแกว่งของราคา → จ่ายค่าประกัน → ที่เหลือไปขยายทุนรอบหน้า** วนเป็นลูกโซ่ (Chain)
 > v2 = หน้าใหม่ที่ **ง่าย · นิ่ง · เร็ว · ทันสมัย** กว่าเดิม — สูตรเดิม ข้อมูลชุดเดิม (`trading_data.json`)
 > ทันสมัย = มี **🧬 Ledger** (สมการ `Rₙ · ΔAₙ · Aₙ · Eₙ` ตาม [streamlit_lego](https://github.com/firstnattapon/streamlit_lego) + ชี้เมาส์ดูที่มาของทุกตัวเลข) และ **🎓 Learn** (สมการ · แผนภาพ · Testing Lab)
-> 🗺️ **แผนผังทั้งระบบ + หลักการ + เป้าหมายสูงสุด** เป็น flowchart ตัวเดียว: [`app_v2_system.mmd`](app_v2_system.mmd) (วางที่ [mermaid.live](https://mermaid.live) ได้เลย)
+> 🗺️ **แผนผังทั้งระบบ + หลักการ + เป้าหมายสูงสุด** เป็น flowchart ตัวเดียว: [`app_v2_system.mmd`](app_v2_system.mmd) (วางที่ [mermaid.live](https://mermaid.live) ได้เลย) · แบบเล็กสุด 5 ขั้นที่ไปถึงเป้าหมายเดิม: [`app_v2_minimal.mmd`](app_v2_minimal.mmd)
 
 ---
 

@@ -1,0 +1,50 @@
+---
+title: 'app-v2 แบบเล็กสุด — 5 ขั้น + 1 เช็ก · เหลือ 5 จาก 9 หลักการ · ไปถึงเป้าหมายเดิม'
+config:
+  flowchart:
+    wrappingWidth: 560
+    nodeSpacing: 40
+    rankSpacing: 45
+---
+%% ═══════════════════════════════════════════════════════════════════════════════
+%% app_v2_system.mmd → แบบเล็กสุด: เป้าหมายเหมือนเดิมทุกตัวอักษร แต่เหลือ 5 ขั้น + 1 เช็ก (7 node จาก 42)
+%% ตัดวนจนนิ่ง — ตัดแล้วตัวเลขของเป้าหมายเท่าเดิมไหม? ถ้าเท่าเดิม = ตัดได้
+%%   รอบ 1  ไม่แตะตัวเลขเลย: 7 views · URL · Learn · Payoff · Testing Lab · Data (Import/Export/Restore) ·
+%%          Atomic Store + StaleState (= ความนิ่งของโปรแกรม ไม่ใช่คณิตศาสตร์)
+%%   รอบ 2  คำนวณทดแทนได้: Baseline b (= ΣH) · Ledger R·A·E (Eₙ ≥ 0 เป็นผลของขั้น ① อยู่แล้ว) · Integrity · Portfolio
+%%   รอบ 3  เสริมการจัดการ/ควบคุม: Cash Lanes (Pool CF · Extract · Deploy · EV Reserve) · Preview/Override gate
+%%   รอบ 4  ยุบโมเดล: Black-Scholes Put → ค่าคงที่เดียว K = 12.4% · c · Hedge× (เท่าเดิมเป๊ะ เพราะ σ r T และ K/S คงที่)
+%%   รอบ 5  ลองตัดทีละขั้นที่เหลือ → ตัวเลขเปลี่ยนทุกขั้น = ตัดอีกไม่ได้ (จุดนิ่ง)
+%% เหลือหลักการ 5 จาก 9: P1 P2 P3 P4 P6 · ตัดได้ 4: P5 Cash Lanes · P7 Atomic · P8 อ่านที่ E · P9 Human-in-the-loop
+%% ข้อสังเกต: "Ev Efficiency" ในแบบนี้ = กำไรที่ loop เก็บเอง (ΣH) ÷ เบี้ยสะสม (ΣK) — ในแอปตัวตั้งคือ Lock P&L + Surplus IV ที่บันทึกไว้
+%% พิสูจน์ว่าเท่าเดิม: tests/test_minimal_loop.py (loop นี้ = engine จริง · ตัดขั้นไหนก็ผลเปลี่ยน · เป้าหมายตรงกับ app_v2_system.mmd)
+%% ═══════════════════════════════════════════════════════════════════════════════
+flowchart TB
+
+  H["<b>① เก็บ</b> · P1 Shannon's Demon<br/>ราคาขยับ t → P · H = c · ln(P / t)<br/><i>Eₙ ไม่ลด — ได้ฟรี (x − 1 ≥ ln x)</i>"]
+  K["<b>② จ่ายเบี้ยก่อน</b> · P2 Pay-first<br/>K = 12.4% · c · Hedge×<br/><i>เบี้ย Put 10% OTM 1 ปี (ใช้เบี้ยจริงก็ได้)</i>"]
+  D{"<b>③ Surplus = H − K</b><br/>เป็นบวก ?"}
+  G["<b>④ โต</b> · P3 Free-Risk Scale-up<br/>c′ = c + Surplus<br/><i>โตด้วยกำไรเท่านั้น</i>"]
+  R["<b>⑤ วน</b> · P4 Continuous Rollover<br/>t′ = P → รอบถัดไป"]
+  Q{"<b>วัดผล</b> · P6 Ev Efficiency<br/>ΣH ÷ ΣK ≥ 1.0x ?"}
+  GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
+
+  H --> K --> D
+  D -->|ใช่| G --> R
+  D -->|ไม่ · c′ = c ไม่ลด| R
+  R --> Q
+  Q -->|ใช่| GOAL
+  Q -->|ยังไม่ · วนต่อ| H
+
+  classDef money fill:#d1fae5,stroke:#10b981,color:#064e3b
+  classDef cost fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+  classDef ctrl fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef dec fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef score fill:#fef3c7,stroke:#f59e0b,color:#78350f
+  classDef goal fill:#fef08a,stroke:#ca8a04,stroke-width:4px,color:#422006
+  class H,G money
+  class K cost
+  class D dec
+  class R ctrl
+  class Q score
+  class GOAL goal
