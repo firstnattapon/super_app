@@ -30,6 +30,6 @@ jobs:
           python -m pip install --upgrade pip
           grep -E '^(streamlit|pandas|numpy|pyarrow|plotly)==' requirements.txt | xargs python -m pip install
       - name: Compile
-        run: python -m py_compile engine_v2.py ledger_v2.py learn_v2.py lego_hover_table.py pages/app-v2.py
+        run: python -m py_compile engine_v2.py ledger_v2.py learn_v2.py lego_hover_table.py pages/app-v2.py pages/app-v3.py
       - name: Test
         run: python -m unittest discover -s tests -v

@@ -1,0 +1,156 @@
+---
+title: 'app-v2 · Chain System — ให้ "ความแกว่งของราคา" จ่ายค่าประกันของตัวเอง แล้วทุนโตเอง (🏆 เป้าหมายสูงสุดอยู่ล่างสุด)'
+config:
+  flowchart:
+    wrappingWidth: 560
+    nodeSpacing: 40
+    rankSpacing: 55
+---
+%% ═══════════════════════════════════════════════════════════════════════════════
+%% app-v2 (pages/app-v2.py · engine_v2.py · ledger_v2.py · learn_v2.py) → flowchart ตัวเดียว
+%%   อ่านจากบนลงล่าง:  ผู้ใช้ → INPUT → ENGINE → GATE → STABLE WRITE → STATE → LEDGER / SCORE → 🏆 เป้าหมาย
+%%   P1–P9 = หลักการ 9 ข้อ ติดป้ายไว้ที่ขั้นที่หลักการนั้นคุมอยู่ (ตรงกับตาราง "สรุปหลักการทั้งหมด" ใน app_v2_explained.md)
+%%   ① ② ③ ④ ⑤ ใน ENGINE = ลำดับสมการเดียวกับแผนภาพใน app_v2_explained.md
+%%   แบบเล็กสุด (5 ขั้น + 1 เช็ก ไปถึงเป้าหมายเดิม): app_v2_minimal.mmd
+%%   ดูภาพ: วางไฟล์นี้ที่ https://mermaid.live หรือ  npx @mermaid-js/mermaid-cli -i app_v2_system.mmd -o app_v2_system.svg
+%% ═══════════════════════════════════════════════════════════════════════════════
+flowchart TB
+
+  LEGEND["🎨 <b>วิธีอ่าน</b> (บนลงล่าง)<br/>🟩 เงิน/กำไร · 🟥 ต้นทุน/อันตราย · 🟦 ผู้ใช้/ควบคุม<br/>⬜ ข้อมูล/ความปลอดภัย · 🟪 Ledger R·A·E · 🟨 วัดผล → เป้าหมาย"]
+  USER("👤 <b>ผู้ใช้</b> เทรดจริงที่ broker แล้วมา <b>คำนวณ + บันทึก</b> ที่นี่<br/><i>ไม่ใช่บอทเทรด · ไม่ส่งออเดอร์</i>")
+  PRIN["🧭 <b>หลักการ 9 ข้อ</b> (ติดป้าย P1–P9 ที่ขั้นที่คุมอยู่)<br/>P1 Shannon's Demon · P2 Pay-first · P3 Free-Risk Scale-up<br/>P4 Continuous Rollover · P5 Cash Lanes · P6 Ev Efficiency<br/>P7 Atomic + stale-proof · P8 อ่านกำไรที่ E · P9 Human-in-the-loop"]
+
+  NAV["🗂️ <b>7 views</b> รันเฉพาะ view ที่เปิด · ลิงก์ตรง ?view= และ ?ticker=<br/>⚡ Engine · 🧬 Ledger · 📊 Portfolio · 🏛️ Treasury · 📐 Payoff · 🎓 Learn · ➕ Data"]
+
+  subgraph IN["INPUT · ⚡ Engine"]
+    direction TB
+    PNEW["📈 <b>P New</b><br/>พิมพ์ หรือ 🔄 Yahoo"]
+    HX["🛡️ <b>Hedge ×</b><br/>No Hedge · No Surplus"]
+    ST["📂 <b>State ของ ticker</b><br/>t · c = fix_c · b"]
+  end
+
+  subgraph ENG["ENGINE · plan_round — คำนวณอย่างเดียว ยังไม่เซฟ"]
+    direction LR
+    S1["<b>P1 · Shannon's Demon</b><br/>① Shannon = c · ln(P / t)"]
+    S2["<b>P2 · Pay-first</b> · ประกันขาลง<br/>③ Hedge = (c/t) · Hedge× · Put(K = 0.9t)<br/>≈ c · Hedge× · 12.4% → Ev burn"]
+    S3["④ Surplus = Shannon − Hedge<br/>บวกเมื่อราคาขึ้น > ≈13% (Hedge ×1)<br/>หรือ > ≈28% (Hedge ×2)"]
+    D1{"Surplus<br/>เป็นบวก ?"}
+    S4["<b>P3 · Free-Risk Scale-up</b> · ขาขึ้น<br/>⑤ c′ = c + Surplus"]
+    S4N["c′ = c (ไม่ลด)<br/>นิ่ง / ลง / ขึ้นไม่พอ<br/>= เสียเบี้ยฟรี"]
+    S5["<b>P4 · Continuous Rollover</b><br/>② b′ = b + Shannon · t′ = P"]
+    S1 --> S3
+    S2 --> S3
+    S3 --> D1
+    D1 -->|ใช่| S4
+    D1 -->|ไม่| S4N
+    S1 --> S5
+  end
+
+  subgraph GATE["GATE · P9 Human-in-the-loop — ไม่ commit อัตโนมัติ"]
+    direction LR
+    PV["👀 <b>Live preview</b><br/>สมการแทนค่าจริง · ก่อน/หลัง/Δ"]
+    D2{"ตรงกับ<br/>broker ?"}
+    OVR["✏️ <b>Override</b><br/>Hedge · fix_c · Baseline"]
+    CM["✅ <b>COMMIT</b><br/>ปุ่มผูก hash ของแผน"]
+    PV --> D2
+    D2 -->|ไม่ตรง| OVR --> CM
+    D2 -->|ตรง| CM
+  end
+
+  subgraph CASH["CASH LANES · P5 · ขาลง + เงินกลาง · 🏛️ Treasury — คุณสั่งเอง"]
+    direction LR
+    FUND["💰 Funding · 🌾 Harvest<br/>ขาลง: กำไร Put ที่คุณบันทึกเอง"]
+    EXT["📥 Extract<br/>Baseline → Pool"]
+    POOL[("🎱 <b>Pool CF</b><br/>ทุกรายการลง<br/>treasury_history")]
+    DEP["🚀 Deploy<br/>Pool → Baseline"]
+    RES[("🛡️ <b>EV Reserve</b>")]
+    LEAPS["💸 EV flow ±<br/>บวก = Income · ลบ = จ่าย LEAPS"]
+    FUND --> POOL
+    EXT --> POOL
+    POOL -->|Regime กลับ · คุณตัดสินใจ| DEP
+    POOL -->|Allocate| RES
+    RES <--> LEAPS
+  end
+
+  subgraph DATA["SAFETY NETS · ➕ Data"]
+    direction TB
+    OPS["➕ เพิ่ม Ticker · 📥 Import ไฟล์/URL https → Confirm<br/>↩️ Restore · 📤 Export · ล้างทั้งหมด = พิมพ์ DELETE"]
+    NORM["🧹 <b>normalize()</b> ไฟล์เก่า → ซ่อม + เตือน<br/>ไฟล์เสีย → โหลด backup (ไม่เขียนทับ)"]
+    OPS --> NORM
+  end
+
+  subgraph SAFE["STABLE WRITE · P7 Atomic + stale-proof — ทุกการเขียนผ่าน Store เดียว"]
+    direction LR
+    D3{"ticker ยังไม่เปลี่ยน<br/>นับจากตอนคำนวณ ?"}
+    STALE["⛔ StaleState<br/>ไม่เขียนอะไร → คำนวณใหม่"]
+    WR["💾 <b>Store</b> .update / .replace<br/>deepcopy → validate → tmp + fsync<br/>→ backup → os.replace"]
+    D3 -->|ไม่| STALE
+    D3 -->|ใช่| WR
+  end
+
+  STATE[("🗄️ <b>trading_data.json</b> · rounds[] = แหล่งความจริง<br/>current_state (t, fix_c, b, Ev, Net) · Pool CF · EV Reserve")]
+
+  subgraph LENS["LEDGER · P8 อ่านกำไรที่ E — 🧬 อ่านอย่างเดียว"]
+    direction TB
+    DR["<b>Rₙ</b> = Σ c·ln(P/t)<br/>= Σ Shannon (เส้นเทรนด์)"]
+    DA["<b>Aₙ</b> = Σ c·(P/t − 1)<br/>เงินสดจริง"]
+    EE["<b>Eₙ = Aₙ − Rₙ ≥ 0</b><br/>กำไร harvest จริง<br/><i>Legacy Rollover ไม่นับ</i>"]
+    INT["🔎 Integrity C0–C8<br/>🖱️ ชี้เมาส์ → เห็นที่มา"]
+    DR --> EE
+    DA --> EE
+    EE --> INT
+  end
+
+  subgraph LRN["LEARN · 🎓 Learn · 📐 Payoff"]
+    direction TB
+    LAB["🧪 <b>Testing Lab</b><br/>สุ่มราคา → Chain Round → ledger"]
+    PAY["📐 Payoff y1–y11<br/>sync จาก Engine"]
+  end
+
+  EFF["⏱️ <b>P6 · Ev Efficiency</b> · 📊 Portfolio<br/>(Lock P&L + Surplus IV) ÷ Ev burn<br/>อ่านคู่ Net P&L · Σ Eₙ · Waterfall · Sankey"]
+  D4{"≥ 1.0 ?"}
+  OK["✅ <b>Sustainable</b><br/>กำไรชนะค่าเช่าเวลา"]
+  BAD["🩸 <b>Bleeding</b><br/>ยังพึ่งทิศทางตลาด<br/>ผู้ใช้ตัดสินใจเอง"]
+
+  GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
+  NEXT("🔁 <b>ลูกโซ่ต่อ</b> ⬆ กลับไป INPUT<br/>(c′, b′, t′ = P) = State ของรอบถัดไป")
+
+  USER --> NAV --> IN
+  IN ==> ENG ==> GATE ==> SAFE
+  CASH --> SAFE
+  DATA --> SAFE
+  SAFE ==> STATE
+  STATE --> LENS
+  STATE --> EFF --> D4
+  LENS -.-> LRN
+  D4 -->|ใช่| OK
+  D4 -->|ไม่| BAD
+  OK ==> GOAL
+  BAD -->|ปรับเอง · รอจังหวะ| NEXT
+
+  classDef money fill:#d1fae5,stroke:#10b981,color:#064e3b
+  classDef cost fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+  classDef ctrl fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef safe fill:#e5e7eb,stroke:#6b7280,color:#111827
+  classDef lens fill:#ede9fe,stroke:#8b5cf6,color:#4c1d95
+  classDef pool fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+  classDef dec fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef score fill:#fef3c7,stroke:#f59e0b,color:#78350f
+  classDef goal fill:#fef08a,stroke:#ca8a04,stroke-width:4px,color:#422006
+  class S1,S3,S4,S5,FUND,EXT,DEP,OK,PNEW money
+  class S2,S4N,STALE,BAD,LEAPS cost
+  class USER,NAV,HX,ST,PV,D2,OVR,CM,PRIN,NEXT,LEGEND ctrl
+  class D3,WR,STATE,NORM,OPS safe
+  class DR,DA,EE,INT,LAB,PAY lens
+  class POOL,RES pool
+  class D1 dec
+  class EFF,D4 score
+  class GOAL goal
+  style IN fill:none,stroke:#3b82f6,stroke-dasharray:4 3
+  style ENG fill:none,stroke:#10b981,stroke-dasharray:4 3
+  style GATE fill:none,stroke:#3b82f6,stroke-dasharray:4 3
+  style SAFE fill:none,stroke:#6b7280,stroke-dasharray:4 3
+  style CASH fill:none,stroke:#10b981,stroke-dasharray:4 3
+  style LENS fill:none,stroke:#8b5cf6,stroke-dasharray:4 3
+  style DATA fill:none,stroke:#6b7280,stroke-dasharray:4 3
+  style LRN fill:none,stroke:#8b5cf6,stroke-dasharray:4 3
