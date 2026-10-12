@@ -78,8 +78,10 @@ GLOSSARY = (
 TERMS = ("คำในกล่องเป้าหมาย: **fix_c** = ทุน c · **Eₙ** = ΣE กำไรจากความแกว่งสะสม ไม่มีวันติดลบ (คณิตศาสตร์ x − 1 ≥ ln x) "
          "จึงไม่ลดลง · **Free Risk** = ทุนโตจากกำไรเท่านั้น ไม่เอาเงินใหม่มาเสี่ยงเพิ่ม · **A** = c · (x − 1) เงินสดจากการ rebalance · "
          "**R** = c · ln x เส้นอ้างอิงตามเทรนด์ (E = A − R) · **ln** = ลอการิทึมธรรมชาติ (ปุ่ม ln ในเครื่องคิดเลข) · **e** ≈ 2.718")
+BACKUP_NOTE = ("ข้อมูลทั้งหมดอยู่ในไฟล์เดียวบนเครื่องที่รันแอป — ถ้าแอปรีสตาร์ตหรือย้ายเครื่อง ข้อมูลอาจหาย · ดาวน์โหลดไฟล์สำรองไว้เป็นระยะ "
+               "แล้วนำเข้ากลับที่นี่ได้ (นำเข้า = แทนที่ข้อมูลปัจจุบัน · ไฟล์เดิมถูกเก็บไว้ข้างๆ ไม่ลบ)")
 FOOTER = ("เครื่องมือคำนวณและจดบันทึกเพื่อการเรียนรู้ — ไม่ใช่คำแนะนำการลงทุน และไม่ส่งคำสั่งซื้อขายจริง · "
-          f"ข้อมูลเก็บในไฟล์ {Path(PATH).name} บนเครื่องที่รันแอป")
+          f"ข้อมูลเก็บในไฟล์ {Path(PATH).name} บนเครื่องที่รันแอป — สำรองไว้เป็นระยะที่ “💾 สำรอง / กู้คืนข้อมูล”")
 
 
 # ── small helpers ─────────────────────────────────────────────────────────────────────
@@ -272,7 +274,7 @@ def score(name: str, pos: dict) -> None:
             st.caption("ยังไม่มีรอบที่บันทึก")
         else:
             st.markdown(esc(table("รอบ | เวลา | t → P | E | K | S | c′", (
-                f"{i} | {str(pos['rounds'][i - 1]['at']).replace('|', '¦')} | {px(r['t'])} → {px(r['p'])} | {sg(r['E'])} | "
+                f"{i} | {pos['rounds'][i - 1]['at']} | {px(r['t'])} → {px(r['p'])} | {sg(r['E'])} | "
                 f"{neg(r['K'])} | {sg(r['S'])} | {usd(r['c_after'])}"
                 for i in range(n, max(0, n - 20), -1) for r in (pos["rounds"][i - 1],)))))
             if n > 20:
@@ -281,6 +283,40 @@ def score(name: str, pos: dict) -> None:
         sure = st.checkbox(f"ยืนยัน: ลบ “{name}” พร้อมประวัติ {n} รอบ (ย้อนกลับไม่ได้)", key=f"v3_confirm|{name}")
         if st.button("ลบถาวร", key="v3_delete", disabled=not sure):
             act(cv.remove, name, ok=f"🗑️ ลบ {name} แล้ว")
+
+
+# ── backup ────────────────────────────────────────────────────────────────────────────
+def backup_section(book) -> None:
+    """Export / import the whole book as one JSON file. ``book`` is None when the data file itself is unreadable."""
+    n = st.session_state.get("_v3_up", 0)                              # a new number = a cleared file chooser after an import
+    held = bool(book and book["positions"])
+    with st.expander("💾 สำรอง / กู้คืนข้อมูล"):
+        st.caption(BACKUP_NOTE)
+        st.markdown("**สำรอง**")
+        st.download_button("⬇️ ดาวน์โหลดไฟล์สำรอง (JSON)", data=cv.export_text(book) if held else "", file_name=cv.backup_filename(),
+                           mime="application/json", disabled=not held, on_click="ignore", key="v3_export", width="stretch")
+        if not held:
+            st.caption("ยังไม่มีข้อมูลให้สำรอง" if book is not None else "ไฟล์ข้อมูลอ่านไม่ได้ จึงสำรองไม่ได้ (ไฟล์เดิมยังอยู่ครบ)")
+        st.markdown("**กู้คืน**")
+        up = st.file_uploader("เลือกไฟล์สำรอง (.json)", type=["json"], key=f"v3_import|{n}")
+        if up is None:
+            return
+        data = up.getvalue()
+        try:
+            names = [pos["name"] for pos in cv.parse_backup(data)["positions"]]
+            rounds = sum(len(pos["rounds"]) for pos in cv.parse_backup(data)["positions"])
+            if not names:
+                raise cv.BookError("ไฟล์นี้ไม่มีข้อมูลสักตัว")
+        except cv.BookError as e:
+            st.error(f"❌ {e}")
+            return
+        st.markdown(esc(f"✅ **อ่านไฟล์ได้** — {len(names)} ตัว · {rounds} รอบ: " + " · ".join(names[:8]) + (" …" if len(names) > 8 else "")))
+        replacing = book is None or held                              # something would be replaced → ask first
+        if replacing:
+            st.warning("ข้อมูลปัจจุบันจะถูกแทนที่ด้วยไฟล์นี้ — ไฟล์เดิมถูกเก็บไว้ข้างๆ (ไม่ลบ)")
+        sure = (not replacing) or st.checkbox("ยืนยัน: แทนที่ข้อมูลปัจจุบันด้วยไฟล์นี้", key=f"v3_import_ok|{n}|{zlib.crc32(data):08x}")
+        if st.button("⬆️ นำเข้า (แทนที่ทั้งหมด)", key="v3_import", disabled=not sure):
+            act(cv.import_book, data, ok=f"✅ นำเข้าแล้ว: {len(names)} ตัว · {rounds} รอบ", _v3_up=n + 1, _v3_select=names[0])
 
 
 def main() -> None:
@@ -302,6 +338,7 @@ def main() -> None:
             else:
                 st.session_state["_v3_flash"] = esc(f"🗄️ เก็บไฟล์เดิมไว้ที่ {kept.name} แล้ว — เริ่มสมุดใหม่ได้เลย")
                 st.rerun()
+        backup_section(None)                                            # … or put a backup back
         return
 
     by_name = {pos["name"]: pos for pos in book["positions"]}
@@ -321,6 +358,7 @@ def main() -> None:
         score(name, by_name[name])
         with st.expander("➕ เริ่มติดตามตัวใหม่"):
             start_form()
+    backup_section(book)
     st.caption(FOOTER)
 
 

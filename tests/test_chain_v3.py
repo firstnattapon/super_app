@@ -6,6 +6,7 @@ import random
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -288,6 +289,120 @@ class BookTest(unittest.TestCase):
         self.assertEqual(data["version"], 2)
         self.assertEqual(sorted(data["positions"][0]["rounds"][0]),
                          sorted(["at", "t", "p", "c", "E", "K", "S", "c_after", "hedge_x", "real_k"]))
+
+
+class BackupTest(unittest.TestCase):
+    """The whole book as one JSON file: download it, and put it back (for hosts whose disk does not last)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        self.path = self.dir / "data" / "book.json"
+
+    def make_book(self, path):
+        cv.start(path, "หุ้น ก.", 500, 20)
+        cv.start(path, "DEMO", 1000, 100)
+        cv.commit(path, "DEMO", cv.plan(1000, 100, 200, 1.0))
+        cv.commit(path, "DEMO", cv.plan(1182.89, 200, 100, 1.0))                   # the last thing done is a commit
+
+    def leftovers(self):
+        return sorted(p.name for p in self.path.parent.iterdir())
+
+    def test_a_backup_round_trips_exactly(self):
+        self.make_book(self.path)
+        book = cv.load(self.path)
+        text = cv.export_text(book)
+        self.assertEqual(json.loads(text), book)                                    # plain JSON …
+        self.assertEqual(text, self.path.read_text("utf-8"))                        # … byte for byte what the file holds
+        self.assertEqual(cv.parse_backup(text.encode("utf-8")), book)
+        other = self.dir / "elsewhere" / "other.json"
+        cv.import_book(other, text.encode("utf-8"))                                 # into a place with nothing to replace
+        self.assertEqual(cv.load(other), book)
+        self.assertEqual(other.read_text("utf-8"), text)
+        self.assertEqual([p.name for p in other.parent.iterdir()], ["other.json"])  # nothing to keep, no temp file
+
+    def test_the_file_name_says_when(self):
+        self.assertEqual(cv.backup_filename(datetime(2026, 10, 12, 9, 5)), "app_v3_backup-20261012-0905.json")
+        self.assertRegex(cv.backup_filename(), r"^app_v3_backup-\d{8}-\d{4}\.json$")
+
+    def test_a_bad_backup_is_refused_and_changes_nothing(self):
+        self.make_book(self.path)
+        before = self.path.read_bytes()
+        good = json.loads(before)
+
+        def spoil(fn):
+            book = json.loads(before)
+            fn(book)
+            return json.dumps(book).encode("utf-8")
+
+        first = lambda b: b["positions"][1]                                          # noqa: E731  (DEMO — the one with rounds)
+        bad = {
+            "empty": b"", "not json": b"{ nope", "not utf-8": b"\xff\xfe\x00", "a list": b"[]", "a number": b"7",
+            "too big": b" " * (cv.MAX_IMPORT_BYTES + 1), "no version": json.dumps({"positions": []}).encode(),
+            "earlier book": json.dumps({**good, "version": 1}).encode(), "newer book": json.dumps({**good, "version": 3}).encode(),
+            "infinite": b'{"version": 2, "positions": [{"name": "A", "c0": 1e999, "t0": 1, "rounds": []}]}',
+            "nan": b'{"version": 2, "positions": [{"name": "A", "c0": NaN, "t0": 1, "rounds": []}]}',
+            "negative E": spoil(lambda b: first(b)["rounds"][0].update(E=-1.0)),
+            "c shrinks": spoil(lambda b: first(b)["rounds"][0].update(c_after=1.0)),
+            "negative c0": spoil(lambda b: first(b).update(c0=-5)),
+            "markdown name": spoil(lambda b: first(b).update(name="[x](http://evil)")),
+            "long name": spoil(lambda b: first(b).update(name="x" * 21)),
+            "same name twice": spoil(lambda b: b["positions"].append({**first(b), "name": "demo"})),
+            "missing field": spoil(lambda b: first(b)["rounds"][0].pop("K")),
+        }
+        for label, data in bad.items():
+            with self.assertRaises(cv.BookError, msg=label):
+                cv.import_book(self.path, data)
+            self.assertEqual(self.path.read_bytes(), before, label)                  # untouched
+            self.assertEqual(self.leftovers(), ["book.json"], label)                 # no copy, no temp file
+        with self.assertRaisesRegex(cv.BookError, "รุ่นก่อน"):
+            cv.parse_backup(bad["earlier book"])                                     # the reason is said plainly
+
+    def test_importing_replaces_the_book_and_keeps_the_old_one_beside_it(self):
+        self.make_book(self.path)
+        old = self.path.read_bytes()
+        src = self.dir / "src.json"
+        cv.start(src, "NEW", 100, 1)
+        new = src.read_bytes()
+        cv.import_book(self.path, new)
+        self.assertEqual([p["name"] for p in cv.load(self.path)["positions"]], ["NEW"])
+        self.assertEqual([k.read_bytes() for k in self.path.parent.glob("book.json.replaced-*")], [old])
+        cv.import_book(self.path, old)                                               # twice more, within the same second …
+        cv.import_book(self.path, new)
+        kept = sorted(self.path.parent.glob("book.json.replaced-*"))
+        self.assertEqual(sorted(k.read_bytes() for k in kept), sorted([old, new, old]))   # … and nothing was overwritten
+        self.assertFalse([n for n in self.leftovers() if n.endswith(".tmp")])
+
+    def test_a_broken_file_is_kept_aside_by_an_import(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text("{ broken", encoding="utf-8")
+        src = self.dir / "src.json"
+        cv.start(src, "OK", 100, 1)
+        cv.import_book(self.path, src.read_bytes())
+        self.assertEqual([p["name"] for p in cv.load(self.path)["positions"]], ["OK"])
+        self.assertEqual([k.read_text("utf-8") for k in self.path.parent.glob("book.json.replaced-*")], ["{ broken"])
+
+    def test_moving_a_broken_file_aside_never_overwrites_an_earlier_one(self):
+        self.path.parent.mkdir(parents=True)
+        for i in range(3):
+            self.path.write_text(f"junk {i}", encoding="utf-8")
+            cv.quarantine(self.path)
+        self.assertEqual(sorted(k.read_text("utf-8") for k in self.path.parent.glob("book.json.broken-*")),
+                         ["junk 0", "junk 1", "junk 2"])
+
+    def test_timestamps_read_back_are_plain(self):
+        """Only what this module writes survives: a foreign file cannot smuggle Markdown into the history table."""
+        self.make_book(self.path)
+        book = json.loads(self.path.read_text("utf-8"))
+        stamps = ["2026-10-12 09:30", "![x](http://evil.example/p.png)**|[a](b)", 20261012, None, "x" * 500]
+        demo = book["positions"][1]                                                  # the one with rounds
+        demo["rounds"] = [{**demo["rounds"][0], "at": s} for s in stamps]
+        read = [r["at"] for r in cv.parse_backup(json.dumps(book).encode("utf-8"))["positions"][1]["rounds"]]
+        self.assertEqual(read[0], "2026-10-12 09:30")                                # a real one is unchanged
+        for at in read:
+            self.assertRegex(at, r"^[0-9: \-]{0,16}$")
+        self.assertFalse(any("evil" in at or "[" in at for at in read))
 
 
 class StandaloneTest(unittest.TestCase):

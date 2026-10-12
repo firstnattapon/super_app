@@ -35,6 +35,7 @@ from typing import Any, Callable, Optional
 PREMIUM_RATE = 0.1239616719
 MAX_NAME = 20
 VERSION = 2                                                      # 1 = the earlier book, whose Surplus was read at R (ln)
+MAX_IMPORT_BYTES = 2_000_000                                     # a backup of a few hundred positions is far smaller
 _BAD_NAME = re.compile(r"[\x00-\x1f`*_\[\]<>\\|$#&]")     # nothing that Markdown / HTML could read as formatting
 _ROUND_KEYS = ("t", "p", "c", "E", "K", "S", "c_after", "hedge_x")
 _ROUND_RULES = {"t": {"positive": True}, "p": {"positive": True}, "c": {"positive": True}, "E": {"minimum": 0.0},
@@ -150,11 +151,16 @@ def _name(raw: Any) -> str:
     return name
 
 
+def _stamp(x: Any) -> str:
+    """A round's timestamp as read back: only digits, '-', ':' and ' ' (all this module ever writes) — anything else, such as
+    Markdown from a hand-edited or foreign file, is dropped."""
+    return re.sub(r"[^0-9: \-]", "", str(x))[:16]
+
+
 def _validated(book: Any) -> dict:
     try:
         if book["version"] != VERSION:                            # an earlier book read its Surplus at R — its rounds do not carry over
-            raise BookError("ไฟล์นี้บันทึกด้วยสมการรุ่นก่อน (Surplus ฐาน R) ใช้ต่อไม่ได้ — กด “เริ่มใหม่” "
-                            "(ไฟล์เดิมถูกเก็บไว้ ไม่ถูกลบ)")
+            raise BookError("ไฟล์นี้บันทึกด้วยสมการรุ่นก่อน (Surplus ฐาน R) ใช้ต่อไม่ได้")
         out = {"version": VERSION, "positions": []}
         seen = set()
         for p in book["positions"]:
@@ -167,7 +173,7 @@ def _validated(book: Any) -> dict:
                 rec = {k: _num(r[k], k, **_ROUND_RULES[k]) for k in _ROUND_KEYS}
                 if rec["c_after"] < rec["c"]:
                     raise BookError("ทุนหลังรอบน้อยกว่าก่อนรอบ — ไฟล์ไม่ถูกต้อง")
-                rec.update(real_k=bool(r.get("real_k", False)), at=str(r.get("at", "")))
+                rec.update(real_k=bool(r.get("real_k", False)), at=_stamp(r.get("at", "")))
                 pos["rounds"].append(rec)
             out["positions"].append(pos)
         return out
@@ -251,8 +257,8 @@ def commit(path: Any, name: str, pl: dict) -> None:
             raise Stale("แผนไม่ถูกต้อง — คำนวณใหม่") from None
         if fresh != pl:
             raise Stale("ข้อมูลเปลี่ยนไปแล้วหลังคำนวณ — ตรวจตัวเลขอีกครั้งแล้วกดบันทึกใหม่")
-        pos["rounds"].append({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), **{k: pl[k] for k in _ROUND_KEYS},
-                              "real_k": pl["real_k"]})
+        pos["rounds"].append({**{k: pl[k] for k in _ROUND_KEYS}, "real_k": pl["real_k"],          # the order load() gives back
+                              "at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     _edit(path, go)
 
 
@@ -273,10 +279,55 @@ def remove(path: Any, name: str) -> None:
     _edit(path, go)
 
 
+def _aside(path: Path, tag: str) -> Path:
+    """A sibling name that is not taken yet — two moves in the same second never overwrite each other."""
+    base = path.with_name(f"{path.name}.{tag}-{datetime.now():%Y%m%d%H%M%S}")
+    dest, i = base, 1
+    while dest.exists():
+        i += 1
+        dest = base.with_name(f"{base.name}-{i}")
+    return dest
+
+
 def quarantine(path: Any) -> Path:
     """Move an unreadable data file aside (never delete it) so a fresh book can start."""
     path = Path(path)
-    dest = path.with_name(f"{path.name}.broken-{datetime.now():%Y%m%d%H%M%S}")
     with _LOCK:
+        dest = _aside(path, "broken")
         os.replace(path, dest)
     return dest
+
+
+# ── backup: the whole book as one JSON file ────────────────────────────────────────────
+def export_text(book: dict) -> str:
+    """The text of a backup file: the validated book, exactly as it is kept on disk."""
+    return json.dumps(book, ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def backup_filename(now: Optional[datetime] = None) -> str:
+    return f"app_v3_backup-{now or datetime.now():%Y%m%d-%H%M}.json"
+
+
+def parse_backup(data: bytes) -> dict:
+    """A backup file's bytes → a validated book (the same strict rules as the data file), or a BookError saying what is wrong."""
+    if len(data) > MAX_IMPORT_BYTES:
+        raise BookError("ไฟล์ใหญ่เกินไป — ไม่ใช่ไฟล์สำรองของแอปนี้")
+    try:
+        raw = json.loads(data.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise BookError("ไฟล์ไม่ใช่ข้อความ UTF-8 — ไม่ใช่ไฟล์สำรองของแอปนี้") from None
+    except ValueError:
+        raise BookError("ไฟล์ไม่ใช่ JSON ที่ถูกต้อง") from None
+    return _validated(raw)
+
+
+def import_book(path: Any, data: bytes) -> dict:
+    """Replace the whole book with a backup. The file it replaces is kept beside it (never deleted); a backup that does not
+    validate changes nothing at all."""
+    book = parse_backup(data)
+    path = Path(path)
+    with _LOCK:
+        if path.exists():
+            _aside(path, "replaced").write_bytes(path.read_bytes())
+        save(path, book)
+    return book

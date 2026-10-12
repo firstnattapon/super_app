@@ -22,6 +22,7 @@ ONE = cv.plan(1000, 100, 200, 1.0)                                       # the d
 BACK = cv.plan(ONE["c_after"], 200, 100, 1.0)                            # … and comes back to where it was
 
 if HAVE_ST:
+    import streamlit as st_mod
     from streamlit.testing.v1 import AppTest
 
 
@@ -50,6 +51,19 @@ def mult(x: float) -> str:
 
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class FakeUpload:
+    """What st.file_uploader hands back — the parts the page uses."""
+
+    def __init__(self, data: bytes, name: str = "backup.json"):
+        self.name, self.size, self.type, self._data = name, len(data), "application/json", data
+
+    def getvalue(self) -> bytes:
+        return self._data
+
+    def read(self) -> bytes:
+        return self._data
 
 
 @unittest.skipUnless(HAVE_ST, "streamlit not installed")
@@ -110,6 +124,25 @@ class AppV3Test(unittest.TestCase):
 
     def set_price(self, at, price):
         self.widget(at, "number_input", "p").set_value(price).run()
+
+    def upload(self, data):
+        """Make the page's file chooser (key v3_import|0) hold ``data`` — AppTest cannot drive st.file_uploader itself.
+        Any other key (the chooser after an import is a new one) is empty again. Returns the spy on st.file_uploader."""
+        fake = FakeUpload(data)
+        patcher = mock.patch.object(st_mod, "file_uploader", side_effect=lambda *a, key=None, **k: fake if key == "v3_import|0" else None)
+        spy = patcher.start()
+        self.addCleanup(patcher.stop)
+        return spy
+
+    def backup_of(self, build):
+        """The bytes of a good backup that ``build(path)`` makes somewhere else."""
+        other = Path(self._tmp.name) / "source" / "app_v3.json"
+        build(other)
+        return other.read_bytes()
+
+    @staticmethod
+    def checkbox_for_import(at):
+        return next(w for w in at.checkbox if (w.key or "").startswith("v3_import_ok"))
 
     # the first screen ------------------------------------------------------------------
     def test_first_visit_says_what_it_is_at_once(self):
@@ -458,17 +491,160 @@ class AppV3Test(unittest.TestCase):
         self.assertEqual(rows[0][3], f"+${last['E']:,.2f}")                           # the E column: never negative
         self.assertGreater(last["c_after"], 1000.0)                                  # the capital really grew over the run
 
-    def test_a_pipe_in_a_hand_edited_timestamp_cannot_break_the_history_table(self):
+    def test_a_hand_edited_timestamp_cannot_break_the_history_table_or_smuggle_markdown(self):
         cv.start(self.path, "EDIT", 1000, 100)
         cv.commit(self.path, "EDIT", cv.plan(1000, 100, 125, 1.0))
         book = self.book()
-        book["positions"][0]["rounds"][0]["at"] = "2026|01|01"
+        book["positions"][0]["rounds"][0]["at"] = "2026|01|01 ![x](http://evil.example/p.png)"
         self.path.write_text(json.dumps(book), encoding="utf-8")
         at = self.start()
         self.assert_clean(at)
         rows = cells(next(m.value for m in at.markdown if "รอบ | เวลา | t → P" in m.value))
-        self.assertEqual([len(r) for r in rows], [7])
-        self.assertIn("2026¦01¦01", rows[0][1])
+        self.assertEqual([len(r) for r in rows], [7])                                     # still one row of seven cells
+        self.assertRegex(rows[0][1], r"^[0-9: \-]*$")                                    # only digits and separators are shown
+        self.assertFalse(any("evil" in m.value for m in at.markdown))
+
+    # backup: download the whole book, put it back --------------------------------------------
+    def test_the_backup_section_is_there_on_every_screen(self):
+        label = "💾 สำรอง / กู้คืนข้อมูล"
+        self.assertTrue(any(e.label == label for e in self.start().expander))             # a new install
+        cv.start(self.path, "AAA", 1000, 100)
+        self.assertTrue(any(e.label == label for e in self.start().expander))             # a book with data
+        self.path.write_text("{ broken", encoding="utf-8")
+        at = self.start()
+        self.assertTrue(any("ไฟล์ข้อมูลไม่ใช่ JSON" in e.value for e in at.error))
+        self.assertTrue(any(e.label == label for e in at.expander))                        # even when the file cannot be read
+
+    def test_the_download_is_exactly_the_book(self):
+        cv.start(self.path, "AAA", 1000, 100)
+        cv.commit(self.path, "AAA", cv.plan(1000, 100, 200, 1.0))
+        with mock.patch.object(st_mod, "download_button", return_value=False) as spy:
+            at = self.start()
+        self.assert_clean(at)
+        kw = spy.call_args.kwargs
+        self.assertIn("ดาวน์โหลดไฟล์สำรอง", spy.call_args.args[0])
+        self.assertEqual(kw["data"], self.path.read_text("utf-8"))                         # byte for byte what the file holds
+        self.assertEqual(kw["data"], cv.export_text(cv.load(self.path)))
+        self.assertRegex(kw["file_name"], r"^app_v3_backup-\d{8}-\d{4}\.json$")
+        self.assertEqual((kw["mime"], kw["disabled"]), ("application/json", False))
+        self.assertEqual(cv.parse_backup(kw["data"].encode("utf-8")), cv.load(self.path))   # and the page itself accepts it back
+
+    def test_there_is_nothing_to_download_before_the_first_position(self):
+        with mock.patch.object(st_mod, "download_button", return_value=False) as spy:
+            at = self.start()
+        self.assertTrue(spy.call_args.kwargs["disabled"])
+        self.assertTrue(any("ยังไม่มีข้อมูลให้สำรอง" in c.value for c in at.caption))
+        self.assertFalse(self.path.exists())                                                # looking creates nothing
+
+    def test_a_backup_restores_a_fresh_install_without_asking(self):
+        def build(p):
+            cv.start(p, "AAA", 1000, 100)
+            cv.commit(p, "AAA", cv.plan(1000, 100, 200, 1.0))
+            cv.start(p, "BBB", 500, 20)
+        data = self.backup_of(build)
+        spy = self.upload(data)
+        at = self.start()
+        self.assert_clean(at)
+        preview = next(unesc(m.value) for m in at.markdown if "อ่านไฟล์ได้" in m.value)
+        for text in ("2 ตัว · 1 รอบ", "AAA", "BBB"):
+            self.assertIn(text, preview)
+        self.assertFalse(self.path.exists())                                                # reading the file changes nothing
+        self.assertEqual([w for w in at.checkbox if (w.key or "").startswith("v3_import_ok")], [])   # nothing to replace: no question
+        self.assertEqual(len(at.warning), 0)
+        at.button(key="v3_import").click().run()
+        self.assert_clean(at)
+        self.assertEqual(self.path.read_bytes(), data)                                      # the book is the backup, exactly
+        self.assertEqual(at.selectbox(key="v3_pos").value, "AAA")
+        self.assertEqual((self.metric(at, "c ·"), self.metric(at, "t ·")), ("$1,182.89", "200"))
+        self.assertTrue(any("นำเข้าแล้ว" in t.value and "2 ตัว" in t.value for t in at.toast))
+        self.assertEqual([p.name for p in self.path.parent.iterdir()], ["app_v3.json"])     # nothing was replaced, nothing kept
+        self.assertEqual(spy.call_args.kwargs["key"], "v3_import|1")                        # and the chooser is a fresh, empty one
+
+    def test_restoring_over_existing_data_asks_first_and_keeps_the_old_file(self):
+        cv.start(self.path, "OLD", 1000, 100)
+        old = self.path.read_bytes()
+        data = self.backup_of(lambda p: cv.start(p, "NEW", 500, 20))
+        self.upload(data)
+        at = self.start()
+        self.assert_clean(at)
+        self.assertEqual(len(at.warning), 1)                                                # "this replaces what you have"
+        self.assertTrue(at.button(key="v3_import").disabled)                                # … until you say yes
+        self.assertEqual(self.path.read_bytes(), old)
+        self.checkbox_for_import(at).check().run()
+        self.assertFalse(at.button(key="v3_import").disabled)
+        self.assertEqual(self.path.read_bytes(), old)                                       # ticking is not importing
+        at.button(key="v3_import").click().run()
+        self.assert_clean(at)
+        self.assertEqual(self.path.read_bytes(), data)
+        self.assertEqual([k.read_bytes() for k in self.path.parent.glob("app_v3.json.replaced-*")], [old])   # the old book is kept
+        self.assertEqual(at.selectbox(key="v3_pos").value, "NEW")
+
+    def test_the_confirmation_belongs_to_one_file(self):
+        cv.start(self.path, "OLD", 1000, 100)
+        first = self.backup_of(lambda p: cv.start(p, "ONE", 100, 1))
+        second = self.backup_of(lambda p: cv.start(p, "TWO", 100, 1))
+        self.upload(first)
+        at = self.start()
+        self.checkbox_for_import(at).check().run()
+        self.assertFalse(at.button(key="v3_import").disabled)
+        self.upload(second)                                                                 # another file is chosen …
+        at.run()
+        self.assertFalse(self.checkbox_for_import(at).value)                                # … so the yes does not carry over
+        self.assertTrue(at.button(key="v3_import").disabled)
+
+    def test_a_bad_backup_is_explained_and_nothing_changes(self):
+        cv.start(self.path, "KEEP", 1000, 100)
+        before = self.path.read_bytes()
+        good = json.loads(before)
+        cases = (
+            (b"{ not json", "ไม่ใช่ JSON"), (b"\xff\xfe\x00", "UTF-8"), (b"[]", "โครงสร้าง"),
+            (json.dumps({**good, "version": 1}).encode(), "สมการรุ่นก่อน"), (b" " * 2_000_001, "ใหญ่เกินไป"),
+            (json.dumps({**good, "positions": []}).encode(), "ไม่มีข้อมูลสักตัว"),
+            (json.dumps({**good, "positions": [{**good["positions"][0], "name": "[x](http://evil.example)"}]}).encode(), "อักขระพิเศษ"),
+            (json.dumps({**good, "positions": [{**good["positions"][0], "c0": -1}]}).encode(), "c0"),
+        )
+        for data, why in cases:
+            with self.subTest(why=why):
+                self.upload(data)
+                at = self.start()
+                self.assertEqual([e.value for e in at.exception], [])
+                self.assertTrue(any(why in e.value for e in at.error), (why, [e.value for e in at.error]))
+                self.assertEqual([b for b in at.button if b.key == "v3_import"], [])        # nothing to press
+                self.assertEqual(self.path.read_bytes(), before)
+                self.assertEqual([p.name for p in self.path.parent.iterdir()], ["app_v3.json"])
+
+    def test_a_broken_data_file_can_be_repaired_by_a_backup(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text("{ broken", encoding="utf-8")
+        data = self.backup_of(lambda p: cv.start(p, "BACK", 100, 1))
+        self.upload(data)
+        at = self.start()
+        self.assertTrue(any("ไฟล์ข้อมูลไม่ใช่ JSON" in e.value for e in at.error))          # the error is still what you see first
+        self.assertTrue(at.button(key="v3_import").disabled)                                # something would be replaced: ask
+        self.checkbox_for_import(at).check().run()
+        at.button(key="v3_import").click().run()
+        self.assert_clean(at)
+        self.assertEqual([p["name"] for p in self.book()["positions"]], ["BACK"])
+        self.assertEqual([k.read_text("utf-8") for k in self.path.parent.glob("app_v3.json.replaced-*")], ["{ broken"])
+
+    def test_a_backup_from_the_page_goes_back_into_the_page(self):
+        """The whole loop: use it, download, lose the file, restore — and carry on from the same numbers."""
+        at = self.demo()
+        self.commit_button(at).click().run()
+        self.commit_button(at).click().run()
+        with mock.patch.object(st_mod, "download_button", return_value=False) as spy:
+            self.start()
+        data = spy.call_args.kwargs["data"].encode("utf-8")
+        self.path.unlink()                                                                  # the host restarted: the file is gone
+        self.assertTrue(any(b.key == "v3_demo" for b in self.start().button))
+        self.upload(data)
+        at = self.start()
+        at.button(key="v3_import").click().run()
+        self.assert_clean(at)
+        self.assertEqual((self.metric(at, "c ·"), self.metric(at, "t ·")), ("$1,264.73", "100"))
+        self.assertEqual((self.metric(at, "ΣE"), self.metric(at, "ΣK"), self.metric(at, "Ev Efficiency")),
+                         ("$535.32", "$270.59", "1.98x"))
+        self.assertEqual(len(at.success), 1)                                                # the goal box is green again
 
     # a broken file · isolation ---------------------------------------------------------------
     def test_a_broken_file_is_kept_and_reset_moves_it_aside(self):
@@ -539,7 +715,7 @@ class AppV3Test(unittest.TestCase):
         ignored = (ROOT / ".gitignore").read_text("utf-8").split()
         self.assertIn("data/app_v3.json", ignored)
         self.assertIn("data/app_v3.json.*", ignored)                                          # temp and .broken-… files too
-        self.assertLessEqual(len(src.splitlines()), 340)
+        self.assertLessEqual(len(src.splitlines()), 400)
         for heavy in ("pandas", "plotly", "numpy", "components", "dataframe"):
             self.assertNotIn(heavy, src, heavy)
 
