@@ -59,6 +59,16 @@ class PlaybookChartTest(unittest.TestCase):
         self.assertEqual(edge_label(self.body, "D", "CG"), "ไม่")
         self.assertIn("เก็บ E ต่อ", edge_label(self.body, "CG", "E"))
 
+    def test_the_loop_closes_whether_or_not_the_goal_is_reached(self):
+        """After the check, the next round starts at ① (the K of the new capital) — "reached" does not end the chain."""
+        solid = re.search(r"^\s*Q\s*-->\|([^|]*)\|\s*K\s*$", self.body, re.M).group(1)
+        dotted = re.search(r"^\s*Q\s*-\.->\|([^|]*)\|\s*K\s*$", self.body, re.M).group(1)
+        self.assertEqual((solid, dotted), ("ยังไม่ · วงจรใหม่ ↻", "ถึงเป้า ก็วนต่อ ↻ K ของ c′"))
+        self.assertEqual(self.edges.count(("Q", "K")), 2)                       # both answers lead back to the K of the new capital
+        header = self.text.split("flowchart TB", 1)[0]
+        for text in ("วงจรปิดเสมอ", "\"วัดผล\" เป็นป้ายสถานะ", "ไม่ใช่ประตู", "เป็นคำถามเดียวกันคนละหน่วย"):
+            self.assertIn(text, header)                                          # and the header says why the check is a label, not a gate
+
     def test_a_positive_surplus_goes_shield_then_scale_up_then_rollover_then_the_check(self):
         for edge in (("D", "A"), ("A", "S"), ("S", "L"), ("S", "I"), ("L", "RO"), ("I", "RO"), ("RO", "Q"), ("Q", "GOAL"), ("Q", "K")):
             self.assertIn(edge, self.edges)
