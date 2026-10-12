@@ -1,18 +1,22 @@
 """chain_v3 — Chain System v3 in a few functions. Standalone: stdlib only, its own data file.
 
 One position is two numbers, (c, t): c = the capital you hold at constant value, t = the reference price.
-When the price moves to P, one round is five steps:
+When the price moves to P (x = P / t), one round is five steps:
 
-    ① H  = c · ln(P / t)          harvest the move            (Shannon's Demon)
+    ① E  = c · (x − 1 − ln x)     harvest the swing           (LEGO: E = A − R — the trend is cut out, E ≥ 0)
     ② K  = 12.4% · c · Hedge×     pay the insurance first     (Put premium — or the real premium)
-    ③ S  = H − K                  what is left?               (Surplus)
+    ③ S  = E − K                  what is left?               (Surplus, read at E)
     ④ c′ = c + max(0, S)          grow only from the surplus  (Free Risk — c never shrinks)
     ⑤ t′ = P                      re-center: the next round starts here
 
-and one check: Ev Efficiency = ΣH ÷ ΣK ≥ 1.0 — the harvest has paid for all the insurance so far.
+and one check: Ev Efficiency = ΣE ÷ ΣK ≥ 1.0 — the swing has paid for all the insurance so far.
 
-Money is kept to the cent *before* it is combined (S = H − K exactly, c′ = c + S exactly), so every line on the
-screen adds up. Rounds are the only source of truth: c, t, ΣH, ΣK are all read back from them.
+E is the equation of the LEGO ledger: A = c·(x − 1) is the cash of one rebalance, R = c·ln x the reference line, and
+E = A − R is what is left once the trend is removed — never negative, because x − 1 ≥ ln x. Reading the Surplus at E
+(not at R) means only the *swing* of the price can pay for the insurance, never a plain rise.
+
+Money is kept to the cent *before* it is combined (S = E − K exactly, c′ = c + S exactly), so every line on the
+screen adds up. Rounds are the only source of truth: c, t, ΣE, ΣK are all read back from them.
 """
 from __future__ import annotations
 
@@ -28,10 +32,13 @@ from typing import Any, Callable, Optional
 
 # Put 10% out of the money, 1 year, σ 50%, r 4% (Black-Scholes) per $1 of c per 1× hedge — the premium is
 # proportional to c, so the whole pricing model collapses to this one number.
-PREMIUM_RATE = 0.123962
+PREMIUM_RATE = 0.1239616719
 MAX_NAME = 20
+VERSION = 2                                                      # 1 = the earlier book, whose Surplus was read at R (ln)
 _BAD_NAME = re.compile(r"[\x00-\x1f`*_\[\]<>\\|$#&]")     # nothing that Markdown / HTML could read as formatting
-_ROUND_KEYS = ("t", "p", "c", "H", "K", "S", "c_after", "hedge_x")
+_ROUND_KEYS = ("t", "p", "c", "E", "K", "S", "c_after", "hedge_x")
+_ROUND_RULES = {"t": {"positive": True}, "p": {"positive": True}, "c": {"positive": True}, "E": {"minimum": 0.0},
+                "K": {"minimum": 0.0}, "S": {}, "c_after": {"positive": True}, "hedge_x": {"minimum": 0.0}}   # E ≥ 0, c never shrinks
 _LOCK = threading.RLock()
 
 
@@ -70,26 +77,51 @@ def plan(c: Any, t: Any, p: Any, hedge_x: Any = 1.0, k: Any = None) -> dict:
     hedge_x = _num(hedge_x, "Hedge ×", minimum=0.0)
     real = None if k is None else _num(k, "ค่าประกันที่จ่ายจริง K", minimum=0.0)
     try:
-        h = _r2(c * math.log(p / t))                            # ① harvest
+        e = _r2(c * _swing(p / t))                              # ① harvest the swing
     except (ValueError, OverflowError):                         # p / t underflowed to 0 or overflowed
         raise BookError("ตัวเลขใหญ่หรือเล็กเกินไป — ตรวจทุน c และราคาอีกครั้ง") from None
     cost = _r2(PREMIUM_RATE * c * hedge_x) if real is None else _r2(real)   # ② pay first
-    s = _r2(h - cost)                                           # ③ what is left
+    s = _r2(e - cost)                                           # ③ what is left
     c_after = _r2(c + max(0.0, s))                              # ④ grow, never shrink
-    if not all(map(math.isfinite, (h, cost, s, c_after))):      # absurdly large inputs overflow to inf
+    if not all(map(math.isfinite, (e, cost, s, c_after))):      # absurdly large inputs overflow to inf
         raise BookError("ตัวเลขใหญ่เกินไป — ตรวจทุน c ราคา และ Hedge × อีกครั้ง")
-    return {"t": t, "p": p, "c": c, "H": h, "K": cost, "S": s, "c_after": c_after,
+    return {"t": t, "p": p, "c": c, "E": e, "K": cost, "S": s, "c_after": c_after,
             "hedge_x": hedge_x, "real_k": real is not None}                                        # ⑤ t′ = p
 
 
-def breakeven_price(c: float, t: float, hedge_x: float = 1.0, k: Optional[float] = None) -> Optional[float]:
-    """The price above which the move pays for the insurance (Surplus > 0):  P* = t · e^(K / c).
-    None when the premium is so large that no price could be shown for it."""
+def _swing(x: float) -> float:
+    """x − 1 − ln x: the harvest per $1 of c when the price moves by the factor x. Zero at x = 1, positive on
+    both sides (that is x − 1 ≥ ln x). Near 1 it is written with log1p so a tiny move does not lose its digits."""
+    u = x - 1.0
+    return u - math.log1p(u) if abs(u) < 0.5 else u - math.log(x)
+
+
+def breakeven_prices(c: float, t: float, hedge_x: float = 1.0, k: Optional[float] = None) -> tuple:
+    """(low, high): the two prices where the swing just pays for the insurance (E = K). The Surplus is positive
+    below ``low`` and above ``high`` (E grows with the size of the move, up or down). A side that no price can
+    reach (or that is too extreme to print) is None; with no premium both are t."""
     cost = PREMIUM_RATE * c * hedge_x if k is None else k
-    try:
-        return t * math.exp(cost / c)
-    except OverflowError:
-        return None
+    r = cost / c                                                 # the premium per $1 of c
+    if r <= 0:
+        return t, t
+    lo, hi = math.exp(-(1.0 + r)), 1.0                           # below 1: _swing(lo) = r + lo > r, _swing(1) = 0 < r
+    low = None
+    if lo > 0:
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if _swing(mid) > r else (lo, mid)
+        low = t * (lo + hi) / 2
+    lo, hi = 1.0, 2.0                                            # above 1: grow hi until _swing(hi) ≥ r, then bisect
+    while _swing(hi) < r and hi < 1e300:
+        hi *= 2
+    high = None
+    if _swing(hi) >= r:
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            lo, hi = (lo, mid) if _swing(mid) >= r else (mid, hi)
+        high = t * (lo + hi) / 2
+    ok = lambda v: v if v is not None and 0 < v < math.inf else None       # noqa: E731
+    return ok(low), ok(high)
 
 
 # ── one position, read back from its rounds ──────────────────────────────────────────
@@ -100,14 +132,14 @@ def current(pos: dict) -> tuple[float, float]:
 
 
 def totals(pos: dict) -> tuple[float, float]:
-    """(ΣH, ΣK) over every round."""
-    return _r2(sum(r["H"] for r in pos["rounds"])), _r2(sum(r["K"] for r in pos["rounds"]))
+    """(ΣE, ΣK) over every round — ΣE is the ledger's Eₙ."""
+    return _r2(sum(r["E"] for r in pos["rounds"])), _r2(sum(r["K"] for r in pos["rounds"]))
 
 
 def efficiency(pos: dict) -> Optional[float]:
-    """Ev Efficiency = ΣH ÷ ΣK (None until some insurance has been paid)."""
-    h, k = totals(pos)
-    return h / k if k > 0 else None
+    """Ev Efficiency = ΣE ÷ ΣK (None until some insurance has been paid)."""
+    e, k = totals(pos)
+    return e / k if k > 0 else None
 
 
 # ── the book: its own JSON file ────────────────────────────────────────────────────
@@ -120,7 +152,10 @@ def _name(raw: Any) -> str:
 
 def _validated(book: Any) -> dict:
     try:
-        out = {"version": 1, "positions": []}
+        if book["version"] != VERSION:                            # an earlier book read its Surplus at R — its rounds do not carry over
+            raise BookError("ไฟล์นี้บันทึกด้วยสมการรุ่นก่อน (Surplus ฐาน R) ใช้ต่อไม่ได้ — กด “เริ่มใหม่” "
+                            "(ไฟล์เดิมถูกเก็บไว้ ไม่ถูกลบ)")
+        out = {"version": VERSION, "positions": []}
         seen = set()
         for p in book["positions"]:
             name = _name(p["name"])
@@ -129,7 +164,9 @@ def _validated(book: Any) -> dict:
             seen.add(name.lower())
             pos = {"name": name, "c0": _num(p["c0"], "c0", positive=True), "t0": _num(p["t0"], "t0", positive=True), "rounds": []}
             for r in p["rounds"]:
-                rec = {k: _num(r[k], k) for k in _ROUND_KEYS}
+                rec = {k: _num(r[k], k, **_ROUND_RULES[k]) for k in _ROUND_KEYS}
+                if rec["c_after"] < rec["c"]:
+                    raise BookError("ทุนหลังรอบน้อยกว่าก่อนรอบ — ไฟล์ไม่ถูกต้อง")
                 rec.update(real_k=bool(r.get("real_k", False)), at=str(r.get("at", "")))
                 pos["rounds"].append(rec)
             out["positions"].append(pos)
@@ -145,7 +182,7 @@ def load(path: Any) -> dict:
     try:
         raw = Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
-        return {"version": 1, "positions": []}
+        return {"version": VERSION, "positions": []}
     except OSError as e:
         raise BookError(f"อ่านไฟล์ข้อมูลไม่ได้: {e}") from e
     try:

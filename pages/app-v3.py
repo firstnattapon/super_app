@@ -1,8 +1,9 @@
 """🎯 Chain System · v3 — a page that explains itself.
 
 The one idea: let the swing of the price pay for its own insurance — then grow the capital only from what is left.
-A round is five steps — ① harvest · ② pay the insurance first · ③ what is left? · ④ grow only from that ·
-⑤ start the next round here — and one score, Ev Efficiency = ΣH ÷ ΣK ≥ 1.0x.
+A round is five steps — ① harvest the swing (E) · ② pay the insurance first · ③ what is left? · ④ grow only from
+that · ⑤ start the next round here — and one score, Ev Efficiency = ΣE ÷ ΣK ≥ 1.0x. The Surplus is read at E, the
+LEGO equation E = A − R (the trend is cut out), so only the *swing* of the price can pay for the insurance.
 
 Standalone: the numbers come from chain_v3.py (stdlib only) and the rounds live in this page's own file
 (data/app_v3.json, or the path in APP_V3_DATA_FILE). Every symbol on the screen is explained in the glossary.
@@ -23,10 +24,13 @@ st.set_page_config(page_title="Chain System v3", page_icon="🎯", layout="cente
 
 PATH = os.environ.get("APP_V3_DATA_FILE") or str(ROOT / "data" / "app_v3.json")
 TITLE = "🎯 Chain System v3"
-DEMO = ("DEMO", 1000.0, 100.0, 125.0)          # name · c · t · the example price P the demo starts with
+DEMO = ("DEMO", 1000.0, 100.0)                  # name · c · t of the one-click example …
+DEMO_PATH = (200.0, 100.0)                      # … whose price doubles, then comes back to where it started
+DEMO_HINT = ("ตัวอย่างรอบ 1: ราคาขึ้นไป 200 (2 เท่า) — กด “บันทึกรอบนี้” แล้วดูรอบถัดไป",
+             "ตัวอย่างรอบ 2: ราคากลับมา 100 — กด “บันทึกรอบนี้” แล้วดูคะแนนด้านล่าง")
 ESSENCE = "ให้ **ความแกว่งของราคา** จ่าย **ค่าประกันของตัวเอง** — ที่เหลือค่อยเอาไปขยายทุน"
 FIVE = "**① เก็บ** → **② จ่ายประกันก่อน** → **③ เหลือไหม?** → **④ โตเฉพาะที่เหลือ** → **⑤ เริ่มรอบใหม่ ↻**"
-LEGEND = ("**c** ทุน · **t** ราคารอบก่อน · **P** ราคาใหม่ · **H** กำไรจากความแกว่ง · **K** ค่าประกัน · **S** ส่วนที่เหลือ · "
+LEGEND = ("**c** ทุน · **t** ราคารอบก่อน · **P** ราคาใหม่ · **E** กำไรจากความแกว่ง · **K** ค่าประกัน · **S** ส่วนที่เหลือ · "
           "**c′** ทุนใหม่")
 HOW_TO = ("วิธีใช้ 3 ขั้น: **1)** เริ่มติดตาม — ตั้งชื่อ ทุน c และราคาเริ่มต้น t · **2)** ราคาเปลี่ยนเมื่อไร ใส่ราคาใหม่ P "
           "แล้วอ่านตัวเลข 5 ขั้น · **3)** กด “บันทึกรอบนี้” แล้วทำซ้ำทุกครั้งที่ราคาเปลี่ยน")
@@ -36,6 +40,12 @@ GOAL = ("🏆 **เป้าหมายสูงสุด · Self-funding Compo
         "Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด  \n"
         "ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
 GOAL_PLAIN = "ถ้าพูดง่ายๆ: ค่าประกันจ่ายจากกำไรของความแกว่งเอง ไม่ใช่จากกระเป๋าเรา — ทุนโตได้อย่างเดียว ไม่เคยลด"
+_LOW, _HIGH = cv.breakeven_prices(1000.0, 100.0, 1.0)      # the two break-even prices at Hedge × 1, for t = 100
+
+
+def pct(x: float, digits: int = 0) -> str:
+    return f"{x:+.{digits}%}".replace("-", "−")
+
 
 # Every symbol the page shows: (symbol, name, what it is, what it is for)
 GLOSSARY = (
@@ -47,27 +57,27 @@ GLOSSARY = (
          "ปรับระดับความอุ่นใจ — ยิ่งสูง ค่าประกันยิ่งแพงตามสัดส่วน"),
     )),
     ("ตัวเลขที่ระบบคำนวณให้ทุกรอบ", (
-        ("H", "กำไรจากความแกว่ง", "H = c · ln(P / t) — ราคาขึ้นเป็นบวก ราคาลงเป็นลบ (หลัก Shannon's Demon)",
-         "คือ “รายได้” ของรอบนี้ ไว้จ่ายค่าประกัน"),
+        ("E", "กำไรจากความแกว่ง", "E = c · (x − 1 − ln x) เมื่อ x = P / t (คือ A − R ของ LEGO) — ตัดเทรนด์ทิ้ง เหลือแต่ความแกว่ง "
+         "ขึ้นหรือลงก็ได้ ไม่เคยติดลบ", "คือ “รายได้” ของรอบนี้ ไว้จ่ายค่าประกัน — ยิ่งแกว่งแรงยิ่งได้มาก"),
         ("K", "ค่าประกัน", f"K = {cv.PREMIUM_RATE:.1%} · c · Hedge× — ราคาประกัน Put ต่ำกว่าตลาด 10% อายุ 1 ปี "
          "(Put = สิทธิ์ขายราคาตายตัว ไว้กันราคาตก) หรือกรอกค่าที่จ่ายจริง", "คือ “ต้นทุน” ของรอบนี้ — จ่ายก่อนเสมอ"),
-        ("S", "ส่วนที่เหลือ (Surplus)", "S = H − K — กำไรหลังหักค่าประกัน",
-         "บวก = ค่าประกันจ่ายครบและยังเหลือ · ลบ = ยังไม่พอจ่ายรอบนี้"),
+        ("S", "ส่วนที่เหลือ (Surplus)", "S = E − K — กำไรจากความแกว่งหลังหักค่าประกัน",
+         "บวก = ความแกว่งจ่ายค่าประกันครบและยังเหลือ · ลบ = แกว่งยังไม่พอจ่ายรอบนี้"),
         ("c′", "ทุนใหม่", "c′ = c + max(0, S) — เพิ่มเฉพาะเมื่อ S เป็นบวก", "ทุนโตจากกำไรเท่านั้น และไม่เคยลด"),
         ("t′", "ราคาอ้างอิงใหม่", "t′ = P — รอบถัดไปเริ่มนับที่ราคานี้", "แยกแต่ละรอบออกจากกัน ไม่ปนกับรอบเก่า"),
-        ("P*", "ราคาคุ้มทุน", "P* = t · e^(K / c) — ราคาที่ H เท่ากับ K พอดี (ประมาณ +13.2% เมื่อ Hedge× 1)",
-         "บอกก่อนบันทึกว่าราคาต้องไปถึงเท่าไร ค่าประกันถึงคุ้ม"),
+        ("P*", "ราคาคุ้มทุน", f"ราคาที่ E เท่ากับ K พอดี มี 2 ด้าน: ขึ้นไป ≈ {pct(_HIGH / 100 - 1)} หรือลงไป ≈ {pct(_LOW / 100 - 1)} "
+         "(เมื่อ Hedge× 1)", "บอกก่อนบันทึกว่าราคาต้องแกว่งไปไกลแค่ไหน ค่าประกันถึงคุ้ม"),
     )),
     ("คะแนนรวมทุกรอบ", (
-        ("ΣH", "กำไรสะสม", "ผลรวม H ของทุกรอบที่บันทึก", "ตัวตั้งของ Ev Efficiency"),
+        ("ΣE", "กำไรสะสมจากความแกว่ง", "ผลรวม E ของทุกรอบที่บันทึก (คือ Eₙ ในสมการ LEGO)", "ตัวตั้งของ Ev Efficiency"),
         ("ΣK", "ค่าประกันสะสม", "ผลรวม K ของทุกรอบที่บันทึก", "ตัวหารของ Ev Efficiency"),
-        ("Ev Efficiency", "คะแนนจ่ายตัวเอง", "ΣH ÷ ΣK — กำไรสะสมเป็นกี่เท่าของค่าประกันสะสม", "ตัวเดียวที่บอกว่าถึงเป้าหมายหรือยัง — 1.0x ขึ้นไป = "
-         "กำไรจากความแกว่งจ่ายค่าประกันสะสมได้ครบแล้ว"),
+        ("Ev Efficiency", "คะแนนจ่ายตัวเอง", "ΣE ÷ ΣK — กำไรสะสมจากความแกว่งเป็นกี่เท่าของค่าประกันสะสม",
+         "ตัวเดียวที่บอกว่าถึงเป้าหมายหรือยัง — 1.0x ขึ้นไป = ความแกว่งจ่ายค่าประกันสะสมได้ครบแล้ว"),
     )),
 )
-TERMS = ("คำในกล่องเป้าหมาย: **fix_c** = ทุน c · **Eₙ** = กำไรส่วนเกินสะสมที่เก็บได้จริง ไม่มีวันติดลบ (คณิตศาสตร์ x − 1 ≥ ln x) "
-         "จึงไม่ลดลง · **Free Risk** = ทุนโตจากกำไรเท่านั้น ไม่เอาเงินใหม่มาเสี่ยงเพิ่ม · **ln** = ลอการิทึมธรรมชาติ "
-         "(ปุ่ม ln ในเครื่องคิดเลข) · **e** ≈ 2.718")
+TERMS = ("คำในกล่องเป้าหมาย: **fix_c** = ทุน c · **Eₙ** = ΣE กำไรจากความแกว่งสะสม ไม่มีวันติดลบ (คณิตศาสตร์ x − 1 ≥ ln x) "
+         "จึงไม่ลดลง · **Free Risk** = ทุนโตจากกำไรเท่านั้น ไม่เอาเงินใหม่มาเสี่ยงเพิ่ม · **A** = c · (x − 1) เงินสดจากการ rebalance · "
+         "**R** = c · ln x เส้นอ้างอิงตามเทรนด์ (E = A − R) · **ln** = ลอการิทึมธรรมชาติ (ปุ่ม ln ในเครื่องคิดเลข) · **e** ≈ 2.718")
 FOOTER = ("เครื่องมือคำนวณและจดบันทึกเพื่อการเรียนรู้ — ไม่ใช่คำแนะนำการลงทุน และไม่ส่งคำสั่งซื้อขายจริง · "
           f"ข้อมูลเก็บในไฟล์ {Path(PATH).name} บนเครื่องที่รันแอป")
 
@@ -127,14 +137,18 @@ def act(fn, *args, ok: str, **after) -> None:
 
 # ── the explanation ─────────────────────────────────────────────────────────────────
 def intro() -> None:
-    ex = cv.plan(DEMO[1], DEMO[2], DEMO[3], 1.0)                    # the worked example is computed, never typed in
+    one = cv.plan(DEMO[1], DEMO[2], DEMO_PATH[0], 1.0)                 # the worked example is computed, never typed in
+    back = cv.plan(one["c_after"], DEMO_PATH[0], DEMO_PATH[1], 1.0)
     st.title(TITLE)
     st.markdown(f"#### {ESSENCE}")
     st.info(esc(
-        "🔑 **แก่นแท้:** ราคาขยับ → เก็บกำไร (**H**) → จ่ายค่าประกัน (**K**) ก่อนเสมอ → เหลือเท่าไร (**S**) → "
+        "🔑 **แก่นแท้:** ราคาแกว่ง → เก็บกำไรจากความแกว่ง (**E**) → จ่ายค่าประกัน (**K**) ก่อนเสมอ → เหลือเท่าไร (**S**) → "
         "ค่อยเอาไปขยายทุน (**c′**) · ถ้าไม่เหลือ ทุนเท่าเดิม **ไม่ลด**\n\n"
-        f"**ตัวอย่าง** ทุน {usd(ex['c'])} · ราคา {px(ex['t'])} → {px(ex['p'])}  \n"
-        f"① เก็บได้ {sg(ex['H'])}  \n② จ่ายประกัน {neg(ex['K'])}  \n③ เหลือ {sg(ex['S'])}  \n④ ทุนโตเป็น {usd(ex['c_after'])}"))
+        f"**ตัวอย่าง** ทุน {usd(one['c'])} · ราคา {px(one['t'])} → {px(one['p'])}  \n"
+        f"① เก็บได้ {sg(one['E'])}  \n② จ่ายประกัน {neg(one['K'])}  \n③ เหลือ {sg(one['S'])}  \n"
+        f"④ ทุนโตเป็น {usd(one['c_after'])}\n\n"
+        f"แล้วราคากลับมา {px(back['p'])} → ทุนโตอีกเป็น {usd(back['c_after'])} — **ราคาเท่าเดิม แต่ทุนโต** "
+        "เพราะเก็บจากความแกว่งทั้งขึ้นและลง"))
     st.markdown(FIVE)
     st.markdown(LEGEND)
     st.caption(HOW_TO)
@@ -160,16 +174,31 @@ def start_form() -> None:
 # ── one round ───────────────────────────────────────────────────────────────────────
 def steps_table(pl: dict) -> str:
     """The five steps with this round's numbers."""
-    c, t, p, h, k, s, c1 = (pl[x] for x in ("c", "t", "p", "H", "K", "S", "c_after"))
+    c, t, p, e, k, s, c1 = (pl[x] for x in ("c", "t", "p", "E", "K", "S", "c_after"))
+    x = p / t
     rule = ("K = ค่าประกันที่จ่ายจริง (กรอกเอง)" if pl["real_k"]
             else f"K = {cv.PREMIUM_RATE:.1%} · c · Hedge× = {cv.PREMIUM_RATE:.1%} × {c:,.2f} × {pl['hedge_x']:g}")
     grow = f"c′ = c + S = {c:,.2f} + {s:,.2f}" if s > 0 else "c′ = c — ไม่มีส่วนเหลือ ทุนจึงไม่โต (และไม่ลด)"
     return table("ขั้น | คำนวณ | ได้", (
-        f"**① H** เก็บกำไรจากราคาที่ขยับ | H = c · ln(P / t) = {c:,.2f} × ln({px(p)} / {px(t)}) | **{sg(h)}**",
+        f"**① E** เก็บกำไรจากความแกว่ง | x = P / t = {px(p)} / {px(t)} = {px(x)} · "
+        f"E = c · (x − 1 − ln x) = {c:,.2f} × ({px(x)} − 1 − ln {px(x)}) | **{sg(e)}**",
         f"**② K** จ่ายค่าประกันก่อน | {rule} | **{neg(k)}**",
-        f"**③ S** เหลือไหม? | S = H − K = {usd(h)} − {usd(k)} | **{sg(s)}** {'✓ เหลือ' if s > 0 else '✗ ไม่เหลือ'}",
+        f"**③ S** เหลือไหม? | S = E − K = {usd(e)} − {usd(k)} | **{sg(s)}** {'✓ เหลือ' if s > 0 else '✗ ไม่เหลือ'}",
         f"**④ c′** โตเฉพาะส่วนที่เหลือ | {grow} | **{usd(c)} → {usd(c1)}**",
         f"**⑤ t′** เริ่มรอบใหม่ | t′ = P · รอบถัดไปเริ่มนับที่ราคานี้ | **{px(t)} → {px(p)}**"))
+
+
+def breakeven_note(c: float, t: float, hedge: float, real, dec: int) -> str:
+    """Where the price must go for this round's swing to pay for its insurance — above or below t."""
+    low, high = cv.breakeven_prices(c, t, hedge, real)
+    if (low, high) == (t, t):
+        return "💡 ไม่มีค่าประกันรอบนี้ — ราคาขยับเท่าไรก็เหลือ"
+    sides = [f"**{word} {price:,.{dec}f}** ({pct(price / t - 1, 1)})" for word, price in (("สูงกว่า", high), ("ต่ำกว่า", low))
+             if price is not None]
+    if not sides:
+        return "💡 ค่าประกันสูงเกินไป — ไม่มีราคาไหนจ่ายคืนได้"
+    return (f"💡 ราคาคุ้มทุน {sym('P*')} — ราคาใหม่ P ต้อง {' หรือ '.join(sides)} ค่าประกันรอบนี้ถึงจะคุ้ม "
+            "(แกว่งน้อยกว่านี้ยังไม่เหลือ)")
 
 
 def run_round(name: str, pos: dict) -> None:
@@ -187,11 +216,14 @@ def run_round(name: str, pos: dict) -> None:
         return f"v3|{part}|{sig}"
 
     dec = 2 if t >= 1 else 4
-    demo_start = (name, c, t) == DEMO[:3] and not n
-    st.session_state.setdefault(key("p"), float(DEMO[3] if demo_start else t))
+    on_demo = ((name, pos["c0"], pos["t0"]) == DEMO and n < len(DEMO_PATH)
+               and [r["p"] for r in pos["rounds"]] == list(DEMO_PATH[:n]))        # the example, still on its path
+    if on_demo:
+        st.caption(f"👆 {DEMO_HINT[n]}")
+    st.session_state.setdefault(key("p"), float(DEMO_PATH[n] if on_demo else t))
     col_p, col_h, col_k = st.columns(3)
     p = col_p.number_input("ราคาใหม่ P", min_value=0.0, step=10.0 ** -dec, format=f"%.{dec}f", key=key("p"),
-                           help="ราคาปัจจุบัน — เทียบกับ t เพื่อหา H = c · ln(P / t)")
+                           help="ราคาปัจจุบัน — เทียบกับ t เพื่อหา E = c · (x − 1 − ln x) เมื่อ x = P / t")
     hedge = col_h.number_input("Hedge ×", min_value=0.0, max_value=100.0, value=1.0, step=0.5, key=f"v3|h|{name}",
                                help="1 = ประกันเต็มทุน c · 2 = ซื้อเกินตัว 2 เท่า · 0 = ไม่ซื้อ")
     real = col_k.number_input("ค่าประกันที่จ่ายจริง K", min_value=0.0, value=None, step=10.0, format="%.2f", key=key("k"),
@@ -202,15 +234,12 @@ def run_round(name: str, pos: dict) -> None:
     except cv.BookError as e:
         st.error(f"❌ {e}")
         return
-    star = cv.breakeven_price(c, t, hedge, real)
-    if star is not None:
-        st.caption(f"💡 ราคาคุ้มทุน {sym('P*')} = **{star:,.{dec}f}** ({star / t - 1:+.1%}) — ราคาใหม่ P ต้องสูงกว่านี้ "
-                   "ค่าประกันรอบนี้ถึงจะคุ้ม")
+    st.caption(breakeven_note(c, t, hedge, real, dec))
     st.markdown(esc(steps_table(pl)))
     if pl["S"] > 0:
-        st.markdown(esc(f"✅ **รอบนี้ราคาจ่ายค่าประกันให้แล้ว และเหลือ {sg(pl['S'])} → ทุนโตเป็น {usd(pl['c_after'])}**"))
+        st.markdown(esc(f"✅ **รอบนี้ความแกว่งจ่ายค่าประกันให้แล้ว และเหลือ {sg(pl['S'])} → ทุนโตเป็น {usd(pl['c_after'])}**"))
     else:
-        st.markdown(esc(f"⚠️ **รอบนี้ไม่เหลือให้โต ({sg(pl['S'])}) → ทุนเท่าเดิม {usd(c)} (ไม่ลด)**"))
+        st.markdown(esc(f"⚠️ **รอบนี้ราคายังแกว่งไม่พอจ่ายค่าประกัน ({sg(pl['S'])}) → ทุนเท่าเดิม {usd(c)} (ไม่ลด)**"))
     plan_id = zlib.crc32(repr(sorted(pl.items())).encode())            # a click on an outdated plan finds no button
     if st.button("✅ บันทึกรอบนี้", type="primary", width="stretch", key=f"v3|commit|{name}|{plan_id:08x}"):
         act(cv.commit, name, pl, ok=f"✅ {name}: ทุน → {usd(pl['c_after'])} · t → {px(p)}")
@@ -220,7 +249,7 @@ def run_round(name: str, pos: dict) -> None:
 
 # ── the score ───────────────────────────────────────────────────────────────────────
 def score(name: str, pos: dict) -> None:
-    h, k = cv.totals(pos)
+    e, k = cv.totals(pos)
     eff = cv.efficiency(pos)
     n = len(pos["rounds"])
     st.divider()
@@ -228,12 +257,12 @@ def score(name: str, pos: dict) -> None:
     if eff is None:
         st.progress(0.0, text="ยังวัดไม่ได้ — ต้องมีอย่างน้อย 1 รอบที่จ่ายค่าประกัน")
     else:
-        st.progress(max(0.0, min(eff, 1.0)), text=f"Ev Efficiency {mult(eff)} · เป้าหมาย 1.00x")
-    m_h, m_k, m_e = st.columns(3)
-    m_h.metric("ΣH · กำไรสะสม", usd(h), border=True, help="ผลรวม H ของทุกรอบที่บันทึก")
+        st.progress(min(eff, 1.0), text=f"Ev Efficiency {mult(eff)} · เป้าหมาย 1.00x")
+    m_e, m_k, m_x = st.columns(3)
+    m_e.metric("ΣE · กำไรสะสม", usd(e), border=True, help="ผลรวม E (กำไรจากความแกว่ง) ของทุกรอบที่บันทึก — คือ Eₙ")
     m_k.metric("ΣK · ค่าประกันสะสม", usd(k), border=True, help="ผลรวม K ของทุกรอบที่บันทึก")
-    m_e.metric("Ev Efficiency", "—" if eff is None else mult(eff), border=True,
-               help="ΣH ÷ ΣK · 1.0x ขึ้นไป = กำไรจากความแกว่งจ่ายค่าประกันสะสมได้ครบแล้ว")
+    m_x.metric("Ev Efficiency", "—" if eff is None else mult(eff), border=True,
+               help="ΣE ÷ ΣK · 1.0x ขึ้นไป = ความแกว่งจ่ายค่าประกันสะสมได้ครบแล้ว")
     reached = eff is not None and eff >= 1.0
     (st.success if reached else st.info)(("✅ ถึงเป้าหมายแล้ว\n\n" if reached else "ยังไม่ถึง 1.0x — วนรอบถัดไป ↻\n\n") + GOAL)
     st.caption(GOAL_PLAIN)
@@ -242,8 +271,8 @@ def score(name: str, pos: dict) -> None:
         if not n:
             st.caption("ยังไม่มีรอบที่บันทึก")
         else:
-            st.markdown(esc(table("รอบ | เวลา | t → P | H | K | S | c′", (
-                f"{i} | {str(pos['rounds'][i - 1]['at']).replace('|', '¦')} | {px(r['t'])} → {px(r['p'])} | {sg(r['H'])} | "
+            st.markdown(esc(table("รอบ | เวลา | t → P | E | K | S | c′", (
+                f"{i} | {str(pos['rounds'][i - 1]['at']).replace('|', '¦')} | {px(r['t'])} → {px(r['p'])} | {sg(r['E'])} | "
                 f"{neg(r['K'])} | {sg(r['S'])} | {usd(r['c_after'])}"
                 for i in range(n, max(0, n - 20), -1) for r in (pos["rounds"][i - 1],)))))
             if n > 20:
@@ -280,7 +309,8 @@ def main() -> None:
     if not by_name:
         st.subheader("🚀 เริ่มเลย")
         if st.button(f"▶ ลองดูตัวอย่างก่อน (ทุน {DEMO[1]:,.0f} · ราคา {DEMO[2]:,.0f})", key="v3_demo", type="primary", width="stretch"):
-            act(cv.start, DEMO[0], DEMO[1], DEMO[2], ok="✅ เริ่มตัวอย่าง DEMO — ลองเปลี่ยนราคาใหม่ P ดู", _v3_select=DEMO[0])
+            act(cv.start, DEMO[0], DEMO[1], DEMO[2], ok="✅ เริ่มตัวอย่าง DEMO — ราคาจะขึ้นไป 200 แล้วกลับมา 100 ลองกดบันทึกดู",
+                _v3_select=DEMO[0])
         st.caption("หรือใส่ของจริงของคุณ ↓")
         start_form()
     else:
