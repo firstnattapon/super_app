@@ -71,6 +71,20 @@ class PlaybookChartTest(unittest.TestCase):
         self.assertIn("Liquidity", step["L"])                                    # scale up with the Liquidity itself …
         self.assertIn("Deep ITM", step["I"])                                     # … or by buying a Deep ITM
 
+    def test_the_choice_between_liquidity_and_a_deep_itm_has_a_rule(self):
+        """⑤ asks one question — is there enough Liquidity left to pay the next K? — enough: Liquidity; not enough: Deep ITM."""
+        edge_label = lambda a, b: re.search(rf"^\s*{a}\s*-->\|([^|]*)\|\s*{b}\s*$", self.body, re.M).group(1)   # noqa: E731
+        self.assertEqual(edge_label("S", "L"), "พอ")
+        self.assertEqual(edge_label("S", "I"), "ไม่พอ")
+        step = {n: label(self.text, n) for n in "SLI"}
+        self.assertIn("Liquidity หลังใช้ ยังเหลือพอจ่าย K ของวงจรหน้า", step["S"])
+        self.assertIn("ไม่มีเบี้ยใหม่", step["L"])                               # why the Liquidity is the plain way
+        self.assertIn("เบี้ยที่จ่ายเพิ่ม = K ใหม่", step["I"])                     # what the Deep ITM costs …
+        self.assertIn("ΣK", step["I"])                                           # … and that Ev Efficiency has to count it
+        header = self.text.split("flowchart TB", 1)[0]
+        self.assertIn("เกณฑ์เลือก ก./ข. (ข้อเสนอ", header)                        # the rule is marked as a proposal,
+        self.assertIn("ไม่ใช่กฎที่ระบุมา", header)                                 # not as something the playbook's author said
+
     def test_the_split_is_a_whole(self):
         shares = [int(x) for x in re.findall(r"(\d+)%", label(self.text, "E"))]
         self.assertEqual(shares, [20, 80])
