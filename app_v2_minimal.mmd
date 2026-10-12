@@ -1,5 +1,5 @@
 ---
-title: 'app-v2 แบบเล็กสุด — 5 ขั้น + 1 เช็ก · เหลือ 5 จาก 9 หลักการ · ไปถึงเป้าหมายเดิม'
+title: 'app-v2 แบบเล็กสุด — 5 ขั้น + 1 เช็ก · เหลือ 6 จาก 9 หลักการ · Surplus อ่านที่ E · ไปถึงเป้าหมายเดิม'
 config:
   flowchart:
     wrappingWidth: 560
@@ -11,23 +11,27 @@ config:
 %% ตัดวนจนนิ่ง — ตัดแล้วตัวเลขของเป้าหมายเท่าเดิมไหม? ถ้าเท่าเดิม = ตัดได้
 %%   รอบ 1  ไม่แตะตัวเลขเลย: 7 views · URL · Learn · Payoff · Testing Lab · Data (Import/Export/Restore) ·
 %%          Atomic Store + StaleState (= ความนิ่งของโปรแกรม ไม่ใช่คณิตศาสตร์)
-%%   รอบ 2  คำนวณทดแทนได้: Baseline b (= ΣH) · Ledger R·A·E (Eₙ ≥ 0 เป็นผลของขั้น ① อยู่แล้ว) · Integrity · Portfolio
+%%   รอบ 2  คำนวณทดแทนได้: Baseline b (= ΣR) · ตาราง Ledger R·A·E เต็ม (เหลือ E ที่ขั้น ①) · Integrity · Portfolio
 %%   รอบ 3  เสริมการจัดการ/ควบคุม: Cash Lanes (Pool CF · Extract · Deploy · EV Reserve) · Preview/Override gate
 %%   รอบ 4  ยุบโมเดล: Black-Scholes Put → ค่าคงที่เดียว K = 12.4% · c · Hedge× (เท่าเดิมเป๊ะ เพราะ σ r T และ K/S คงที่)
 %%   รอบ 5  ลองตัดทีละขั้นที่เหลือ → ตัวเลขเปลี่ยนทุกขั้น = ตัดอีกไม่ได้ (จุดนิ่ง)
-%% เหลือหลักการ 5 จาก 9: P1 P2 P3 P4 P6 · ตัดได้ 4: P5 Cash Lanes · P7 Atomic · P8 อ่านที่ E · P9 Human-in-the-loop
-%% ข้อสังเกต: "Ev Efficiency" ในแบบนี้ = กำไรที่ loop เก็บเอง (ΣH) ÷ เบี้ยสะสม (ΣK = Ev burn) — ในแอปตัวตั้งคือ Lock P&L + Surplus IV ที่บันทึกไว้
-%% ทำเป็นหน้าจริง: pages/app-v3.py (หน้านี้คือแผนผังนี้ · ข้อมูลชุดเดียวกับ app / app-v2)
-%% พิสูจน์ว่าเท่าเดิม: tests/test_minimal_loop.py (loop นี้ = engine จริง · ตัดขั้นไหนก็ผลเปลี่ยน · เป้าหมายตรงกับ app_v2_system.mmd)
+%%   รอบ 6  แก้ฐานของ Surplus จาก R (ln) เป็น E — ให้ "ความแกว่ง" ล้วนๆ จ่ายค่าประกัน (ตัดเทรนด์ทิ้ง) ตรงกับเป้าหมาย
+%%          ⇒ P8 (อ่านกำไรที่ E) ตัดไม่ได้ เพราะมันคือขั้น ① เอง: E = A − R = c · (x − 1 − ln x) ≥ 0 เสมอ (x − 1 ≥ ln x)
+%% เหลือหลักการ 6 จาก 9: P1 P2 P3 P4 P6 P8 · ตัดได้ 3: P5 Cash Lanes · P7 Atomic · P9 Human-in-the-loop
+%% ข้อสังเกต: "Ev Efficiency" ในแบบนี้ = กำไรจากความแกว่งที่ loop เก็บเอง (ΣE = Eₙ) ÷ เบี้ยสะสม (ΣK = Ev burn) — ในแอปตัวตั้งคือ Lock P&L + Surplus IV ที่บันทึกไว้
+%%           จุดคุ้มค่าเบี้ยต่อรอบ (Hedge ×1): ราคาต้องขยับ +58% ขึ้น หรือ −42% ลง (ฐาน E) — ไม่ใช่ +13.2% ของฐาน R
+%% ทำเป็นหน้าจริง: pages/app-v3.py (หน้านี้คือแผนผังนี้ · แยกจาก app-v2 เด็ดขาด: โค้ด chain_v3.py + ไฟล์ข้อมูล data/app_v3.json ของตัวเอง)
+%% พิสูจน์: tests/test_minimal_loop.py (E ของขั้น ① = Eₙ ของ ledger_v2 ที่ใช้สมการ LEGO ทุกรอบ · chain_v3 วิ่ง loop นี้เป๊ะ · ตัดขั้นไหนก็ผลเปลี่ยน · เป้าหมายตรงกับ app_v2_system.mmd)
+%% หมายเหตุ: อ่าน Surplus ที่ E แล้ว fix_c จึง "ไม่เท่า" ของ engine_v2 ที่อ่านที่ R — ตั้งใจ (engine_v2 / app-v2 ไม่ถูกแก้)
 %% ═══════════════════════════════════════════════════════════════════════════════
 flowchart TB
 
-  H["<b>① เก็บ</b> · P1 Shannon's Demon<br/>ราคาขยับ t → P · H = c · ln(P / t)<br/><i>Eₙ ไม่ลด — ได้ฟรี (x − 1 ≥ ln x)</i>"]
+  H["<b>① เก็บ</b> · P1 Shannon's Demon · P8 อ่านกำไรที่ E<br/>ราคาขยับ t → P · E = c · (x − 1 − ln x) เมื่อ x = P / t<br/><i>E = A − R ≥ 0 เสมอ ตัดเทรนด์ทิ้ง — ได้ฟรี (x − 1 ≥ ln x)</i>"]
   K["<b>② จ่ายเบี้ยก่อน</b> · P2 Pay-first<br/>K = 12.4% · c · Hedge×<br/><i>เบี้ย Put 10% OTM 1 ปี (ใช้เบี้ยจริงก็ได้)</i>"]
-  D{"<b>③ Surplus = H − K</b><br/>เป็นบวก ?"}
+  D{"<b>③ Surplus = E − K</b><br/>เป็นบวก ?"}
   G["<b>④ โต</b> · P3 Free-Risk Scale-up<br/>c′ = c + Surplus<br/><i>โตด้วยกำไรเท่านั้น</i>"]
   R["<b>⑤ วน</b> · P4 Continuous Rollover<br/>t′ = P → รอบถัดไป"]
-  Q{"<b>วัดผล</b> · P6 Ev Efficiency<br/>ΣH ÷ ΣK ≥ 1.0x ?"}
+  Q{"<b>วัดผล</b> · P6 Ev Efficiency<br/>ΣE ÷ ΣK ≥ 1.0x ?"}
   GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
 
   H --> K --> D

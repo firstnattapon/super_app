@@ -24,12 +24,12 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements.txt
-      # Only the stack app-v2 and its tests use; the pins stay in requirements.txt (one place to bump them).
+      # Only the stack app-v2 / app-v3 and their tests use; the pins stay in requirements.txt (one place to bump them).
       - name: Install the pinned stack
         run: |
           python -m pip install --upgrade pip
           grep -E '^(streamlit|pandas|numpy|pyarrow|plotly)==' requirements.txt | xargs python -m pip install
       - name: Compile
-        run: python -m py_compile engine_v2.py ledger_v2.py learn_v2.py lego_hover_table.py pages/app-v2.py pages/app-v3.py
+        run: python -m py_compile engine_v2.py ledger_v2.py learn_v2.py lego_hover_table.py chain_v3.py pages/app-v2.py pages/app-v3.py
       - name: Test
         run: python -m unittest discover -s tests -v
