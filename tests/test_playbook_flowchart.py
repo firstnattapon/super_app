@@ -3,8 +3,9 @@
 The flowchart is hand-written Mermaid. These tests guard what is easy to break silently: a step that lost its instrument,
 the 20% / 80% split that stopped adding up to a whole, the order "pay K first, then harvest E", the way out of the
 question "is the Surplus positive?" (shield, then scale up fix_c with Liquidity or a Deep ITM, then the check), the
-Rollover that step 5 uses (the equation of streamlit_lego, checked against the project's ledger), the goal text, and
-Mermaid's one parser trap for comments.
+Rollover that step 5 uses (the equation of streamlit_lego, checked against the project's ledger), what a big capital
+gain with no Surplus does (roll P up, pull the trend out, keep E — checked against chain_v3 and the ledger), the goal text,
+and Mermaid's one parser trap for comments.
 """
 import math
 import re
@@ -24,6 +25,11 @@ def label(text: str, node: str) -> str:
     return re.sub(r"</?[bi]>", "", line).replace("<br/>", " ")
 
 
+def edge_label(body: str, a: str, b: str) -> str:
+    """The text on the edge a --> b (the edge must carry one)."""
+    return re.search(rf"^\s*{a}\s*-->\|([^|]*)\|\s*{b}\s*$", body, re.M).group(1)
+
+
 class PlaybookChartTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -33,7 +39,7 @@ class PlaybookChartTest(unittest.TestCase):
 
     def test_it_is_small_flat_and_every_edge_has_both_ends(self):
         self.assertTrue(self.text.startswith("---\ntitle:"))
-        self.assertEqual(self.nodes, {"K", "E", "D", "A", "S", "L", "I", "RO", "Q", "GOAL"})
+        self.assertEqual(self.nodes, {"K", "E", "D", "CG", "A", "S", "L", "I", "RO", "Q", "GOAL"})
         self.assertEqual((len(self.subgraphs), self.depth), (0, 0))
         self.assertEqual(sorted({x for e in self.edges for x in e} - self.nodes), [])
 
@@ -41,15 +47,17 @@ class PlaybookChartTest(unittest.TestCase):
         self.assertIn(("K", "E"), self.edges)
         self.assertIn(("E", "D"), self.edges)
         into = lambda n: {a for a, b in self.edges if b == n}                   # noqa: E731
-        self.assertEqual(into("E"), {"K", "D"})                                  # E follows K, or D saying "keep harvesting"
+        self.assertEqual(into("E"), {"K", "CG"})                                 # E follows K, or the "no" of ③ saying "keep harvesting"
         self.assertEqual(into("K"), {"Q"})                                       # K is paid again only when a new cycle starts
         self.assertEqual(into("D"), {"E"})
 
     def test_no_surplus_means_keep_harvesting_not_paying_again(self):
-        self.assertIn(("D", "E"), self.edges)
-        self.assertNotIn(("D", "K"), self.edges)
-        line = next(ln for ln in self.body.splitlines() if re.match(r"^\s*D\s*-->\|ไม่", ln))
-        self.assertIn("เก็บ E ต่อ", line)
+        self.assertIn(("D", "CG"), self.edges)
+        self.assertIn(("CG", "E"), self.edges)
+        for edge in (("D", "K"), ("D", "E"), ("CG", "K")):                       # no K again, and no way round the roll-and-bank step
+            self.assertNotIn(edge, self.edges)
+        self.assertEqual(edge_label(self.body, "D", "CG"), "ไม่")
+        self.assertIn("เก็บ E ต่อ", edge_label(self.body, "CG", "E"))
 
     def test_a_positive_surplus_goes_shield_then_scale_up_then_rollover_then_the_check(self):
         for edge in (("D", "A"), ("A", "S"), ("S", "L"), ("S", "I"), ("L", "RO"), ("I", "RO"), ("RO", "Q"), ("Q", "GOAL"), ("Q", "K")):
@@ -77,9 +85,8 @@ class PlaybookChartTest(unittest.TestCase):
 
     def test_the_choice_between_liquidity_and_a_deep_itm_has_a_rule(self):
         """⑤ asks one question — is there enough Liquidity left to pay the next K? — enough: Liquidity; not enough: Deep ITM."""
-        edge_label = lambda a, b: re.search(rf"^\s*{a}\s*-->\|([^|]*)\|\s*{b}\s*$", self.body, re.M).group(1)   # noqa: E731
-        self.assertEqual(edge_label("S", "L"), "พอ")
-        self.assertEqual(edge_label("S", "I"), "ไม่พอ")
+        self.assertEqual(edge_label(self.body, "S", "L"), "พอ")
+        self.assertEqual(edge_label(self.body, "S", "I"), "ไม่พอ")
         step = {n: label(self.text, n) for n in "SLI"}
         self.assertIn("Liquidity หลังใช้ ยังเหลือพอจ่าย K ของวงจรหน้า", step["S"])
         self.assertIn("ไม่มีเบี้ยใหม่", step["L"])                               # why the Liquidity is the plain way
@@ -101,20 +108,22 @@ class PlaybookChartTest(unittest.TestCase):
 
     def test_the_principles_it_uses_carry_their_names(self):
         for tag, name in (("P1", "Shannon's Demon"), ("P2", "Pay-first"), ("P3", "Free-Risk Scale-up"), ("P4", "Continuous Rollover"),
-                          ("P6", "Ev Efficiency"), ("P8", "อ่านกำไรที่ E")):
+                          ("P5", "Cash Lanes"), ("P6", "Ev Efficiency"), ("P8", "อ่านกำไรที่ E")):
             self.assertIn(f"{tag} {name}", self.body)
-        for dropped in ("P5", "P7", "P9"):
+        for dropped in ("P7", "P9"):
             self.assertNotRegex(self.body, rf"\b{dropped}\b")
         tags = lambda text: set(re.findall(r"\bP\d\b", text.split("flowchart TB", 1)[1]))                         # noqa: E731
         minimal = (ROOT / "app_v2_minimal.mmd").read_text(encoding="utf-8")
-        self.assertEqual(tags(self.text), tags(minimal))                         # the same six principles as the minimal chart
+        self.assertEqual(tags(self.text), tags(minimal) | {"P5"})                # the minimal chart's six + the cash lane the gain leaves by
+        used = sorted(tags(self.text))
+        self.assertIn(f"หลักการที่ใช้ {len(used)} จาก 9: {' '.join(used)}", self.text.split("flowchart TB", 1)[0])   # the header says so too
 
     def test_step_5_scale_up_uses_the_rollover_of_streamlit_lego(self):
         """⑤.2 carries P4 and LEGO's equation; the project's ledger agrees that R stays continuous with it — and that it breaks without."""
         eq = "β += (Fix_c − Fix_c′) · ln(P_acted / P₀)"
         step = label(self.text, "RO")
-        for text in ("⑤.2 Rollover", "P4 Continuous Rollover", "ได้ทุนใหม่ Fix_c′ แล้ว", "จุดหมุนคือ P_acted", eq,
-                     "β บวกที่ R เท่านั้น ไม่บวกที่ A", "R ต่อเนื่อง"):
+        for text in ("⑤.2 Rollover", "P4 Continuous Rollover", "ได้ทุนใหม่ Fix_c′ แล้ว", "roll P ขึ้น", "จุดหมุนคือ P_acted", eq,
+                     "β บวกที่ R เท่านั้น ไม่บวกที่ A", "R ต่อเนื่อง", "ดึง capital gain ออก", "P5 Cash Lanes", "ส่วนเทรนด์ R"):
             self.assertIn(text, step)
         scale_up = label(self.text, "S")
         for text in ("⑤.1 Scale Up fix_c", "ทุนใหม่ Fix_c′ = Fix_c + Surplus"):     # 5.1 gives 5.2 its Fix_c′: new capital first, then the rollover
@@ -150,6 +159,66 @@ class PlaybookChartTest(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["beta_after"], step_beta, places=9)           # and its β is the chart's step
         bare = rows[1]["fix_c"] * math.log(rows[1]["p_fill"] / rows[1]["p0"])        # the same R without any β
         self.assertGreater(abs(bare - rows[1]["R"]), 1.0)                           # is far off: the rollover does real work
+
+    def test_a_big_capital_gain_without_a_surplus_is_rolled_up_and_banked_not_spent(self):
+        """③ "no" does not just wait: it rolls P up and pulls the trend out as cash, then goes back to harvesting E."""
+        step = label(self.text, "CG")
+        for text in ("③.1 Rollover", "P4 Continuous Rollover", "P5 Cash Lanes", "roll P ขึ้น", "t′ = P", "ดึง capital gain ออก",
+                     "ส่วนเทรนด์ R", "Baseline b", "E อยู่ต่อ", "ไม่มีทุนใหม่ จึงไม่มี β"):
+            self.assertIn(text, step)
+        self.assertNotIn("ทั้งหมด", step)                                         # not all of the gain: only the trend part leaves, E stays
+        into = lambda n: {a for a, b in self.edges if b == n}                   # noqa: E731
+        out = lambda n: {b for a, b in self.edges if a == n}                    # noqa: E731
+        self.assertEqual((into("CG"), out("CG")), ({"D"}, {"E"}))                # the banked trend leads back to harvesting E, nowhere else
+        self.assertEqual(out("D"), {"A", "CG"})                                  # ③ has two ways out: yes → shield, no → roll and bank
+        self.assertEqual(out("CG") & {"A", "S", "L", "I", "RO"}, set())          # and the trend is never scaled up with
+        header = self.text.split("flowchart TB", 1)[0]
+        for text in ("E อยู่ในระบบ เพราะ E จ่าย K และเป็น Surplus", "เทรนด์ไม่ใช่ Surplus จึงไม่เอาไปขยาย fix_c", "ไม่ใช่กระสุนซื้อคืนของ demon",
+                     "Rollover ก่อนค่อยดึง", "③.1 จึงมีแค่ roll P ขึ้น กับดึง capital gain ออก ส่วน ⑤.2 มี β ด้วย"):
+            self.assertIn(text, header)             # why E stays, why the trend is not scaled up, the catch, and how ③.1 differs from ⑤.2 (no β)
+
+    def test_the_capital_gain_example_matches_chain_v3_and_the_ledger(self):
+        """fix_c 1,500 · t 10 → P 15: the header's numbers are the computed ones, and pulling the trend out leaves E where it is."""
+        sys.path.insert(0, str(ROOT))
+        import chain_v3 as cv
+        import ledger_v2 as led
+        c, t0, t1 = 1500.0, 10.0, 15.0
+        plan = cv.plan(c, t0, t1, 1.0)
+        gain = c * (t1 / t0 - 1.0)                                                  # capital gain = the cash of the rebalance (A)
+        trend = c * math.log(t1 / t0)                                               # R: depends only on where the price is
+        self.assertAlmostEqual(gain - trend, plan["E"], places=2)                   # E = A − R, the part that stays
+        self.assertLess(plan["S"], 0.0)                                              # the example is a "no" at ③ …
+        self.assertGreater(trend, plan["K"])                                         # … with a trend gain that dwarfs K
+        header = self.text.split("flowchart TB", 1)[0]
+        fmt = lambda x: f"{x:.2f}".replace("-", "−")                                 # noqa: E731
+        self.assertIn(f"A {fmt(gain)} = R {fmt(trend)} + E {fmt(plan['E'])} · K {fmt(plan['K'])} → Surplus {fmt(plan['S'])}", header)
+        self.assertIn(f"ดึง R {fmt(trend)} ออก · E {fmt(plan['E'])} อยู่ต่อ", header)  # the header's worked numbers are the computed ones
+        self.assertIn("แถว Extract Baseline ไม่เปลี่ยน A · R · E, chain ต่อเนื่อง, integrity ผ่าน", header)   # and the evidence the checks below give
+
+        base = {"hedge_ratio": 1.0, "sigma": 0.5, "ev_change": 0.0, "note": ""}
+
+        def chain_round(p_old, p_new, b_before):
+            shannon = round(c * math.log(p_new / p_old), 2)
+            return {"action": "Chain Round", "p_old": p_old, "p_new": p_new, "c_before": c, "c_after": c, "shannon_profit": shannon,
+                    "harvest_profit": 0.0, "hedge_cost": plan["K"], "surplus": round(shannon - plan["K"], 2), "scale_up": 0.0,
+                    "b_before": b_before, "b_after": round(b_before + shannon, 2), **base}
+
+        first = chain_round(t0, t1, 0.0)
+        self.assertAlmostEqual(first["b_after"], trend, places=2)                   # the baseline holds the trend: that is what is pulled
+        extract = {"action": "Extract Baseline", "p_old": t1, "p_new": t1, "c_before": c, "c_after": c, "shannon_profit": 0.0,
+                   "harvest_profit": 0.0, "hedge_cost": 0.0, "surplus": 0.0, "scale_up": 0.0,
+                   "b_before": first["b_after"], "b_after": 0.0, **base}            # P rolled up to 15, the baseline pulled out
+        banked = [first, extract, chain_round(t1, t0, 0.0)]                         # … and the price swings back to 10
+        kept = [first, chain_round(t1, t0, first["b_after"])]                       # the same path without pulling anything out
+
+        for rounds in ([first], [first, extract]):
+            s = led.build({"rounds": rounds})["summary"]
+            self.assertEqual((round(s["A"], 2), round(s["R"], 2), round(s["E"], 2)), (round(gain, 2), round(trend, 2), round(plan["E"], 2)))
+        ledger = led.build({"rounds": banked})
+        self.assertAlmostEqual(ledger["summary"]["E"], led.build({"rounds": kept})["summary"]["E"], places=9)   # pulling it out leaves E alone
+        self.assertAlmostEqual(ledger["summary"]["E"], plan["E"] + cv.plan(c, t1, t0, 1.0)["E"], delta=0.01)    # E = Σ of the rounds' E
+        self.assertEqual(ledger["summary"]["breaks"], [])                           # rolling P up keeps the chain unbroken …
+        self.assertTrue(led.integrity({"rounds": banked}, ledger)[1])               # … and the ledger's own audit passes
 
     def test_the_goal_is_word_for_word_the_same_as_the_other_charts(self):
         goal = lambda t: re.search(r'^\s*GOAL\("(.*)"\)\s*$', t, re.M).group(1)    # noqa: E731
