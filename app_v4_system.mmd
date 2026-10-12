@@ -1,0 +1,102 @@
+---
+title: 'app-v4 · แผนผังระบบ — วงจร ① → ⑤.2 บนสมการ LEGO · หลาย ticker ใช้กระเป๋ากลางร่วมกัน · Chain data = ลิสต์ขั้นตอนเดียว'
+config:
+  flowchart:
+    wrappingWidth: 560
+    nodeSpacing: 40
+    rankSpacing: 45
+---
+%% ═══════════════════════════════════════════════════════════════════════════════
+%% app_v4_system.mmd — แผนผังระบบ app-v4 หน้าเดียว: วงจร ① → ⑤.2 → ↻ ① · กระเป๋ากลางที่ทุก ticker ใช้ร่วมกัน · Chain data
+%% ภาพนี้ฝังอยู่ใน app_v4_system.md (พร้อมคำอธิบาย) · หน้าแอป: pages/app-v4.py · แกนคำนวณ: chain_v4.py · ตรวจโดยการรันจริง: tests/test_v4_charts.py
+%% ·
+%% วงจรของคุณ (ถ้อยคำตรงกับหน้าแอปทุกตัวอักษร):
+%%   ① จ่าย K ก่อน → ② เก็บ E → ③ Surplus = E − K บวกไหม ?
+%%   ไม่ → ③.1 roll P ขึ้น · ดึง capital gain (เทรนด์ R) ออก · E อยู่ต่อ → กลับ ② (ไม่จ่าย K ซ้ำ)
+%%   ใช่ → ④ Shield → ⑤.1 Scale Up fix_c → ⑤.2 Rollover → วัดผล → ↻ ① (จ่าย K ของทุนใหม่ c′ ก่อนเสมอ)
+%% ·
+%% อ่านกล่อง:  event = ขั้นตอนที่บันทึกลงลิสต์ Chain data (open · pay · move · scale · cash) · "กระเป๋า:" = ผลต่อ Pool CF / EV Reserve / Ev Burn
+%% สมการของ ledger = streamlit_lego main (lego_dash_core E3–E6 · cheat_sheet/main_rebalancing.mmd · rollover.mmd) · ชั้น Chain (K · E_cyc · S · c′ · ΣE ÷ ΣK) ต่อบนนั้น
+%% เป้าหมายเหมือน app_v2_minimal.mmd · app_v2_system.mmd · app_v3_playbook.mmd · app_v3_final.mmd ทุกตัวอักษร
+%% ·
+%% หมายเหตุ
+%%  · เส้นในภาพ = ลำดับลงมือเท่านั้น · กระเป๋ากลางกับ Chain data ไม่มีเส้นเชื่อม เพราะทุกขั้นแตะมัน — ผลต่อกระเป๋าเขียนไว้ในกล่องของแต่ละขั้น
+%%  · P_acted ← Pₙ ทุกครั้งที่ ② บันทึกราคา fill — "roll P ขึ้น" ของ ③.1 จึงเกิดไปแล้วตอน ② ส่วน ③.1 ทำเพิ่มแค่ "ดึง capital gain" (cash: Baseline b → Pool CF)
+%%  · gap = Vₙ − Fix_c ตามโค้ดและ main_rebalancing.mmd ของ streamlit_lego (คู่มือ HTML เขียน Fix_c − Vₙ) · A และ E คือโมเดล ไม่ใช่กำไรหลังค่าธรรมเนียม
+%%  · "วัดผล" เป็นป้ายสถานะ ประตูจริงคือ S เป็นบวก · ④ Shield เป็นช่องติ๊กบังคับ — Put Ratio 2-1 ยังไม่กำหนดฝั่งซื้อ/ขายและ strike จึงยังไม่คำนวณ (ข้อค้าง)
+%%  · "ชำระ" ใน ⑤.2 เป็นค่าเริ่มต้น (ปิดได้): E_cyc เข้า Pool CF แล้ว K คืน EV Reserve — วงจรที่สำเร็จจึงทำให้ EV Reserve กลับเท่าก่อนจ่าย K
+%%  · ตัวอย่าง fix_c 1,500 · P₀ 10 → 15 → 10 · Hedge ×1 · ใส่ EV Reserve 300: K 185.94 (Reserve 114.06) → ราคา 15: E 141.80 · S −44.14 (③ ไม่) → ③.1 ดึง b 608.20 →
+%%    ราคา 10: E 250.00 · S +64.06 (③ ใช่) → ④ → ⑤.1 Liquidity · ⑤.2 → c′ 1,564.06 · EV Reserve 300.00 · Ev Efficiency 1.34x → ↻ ① K′ 193.88
+%% ═══════════════════════════════════════════════════════════════════════════════
+flowchart TB
+
+  KEY["🔑 <b>Key message</b><br/><b>ประกันก่อน · ความแกว่งจ่าย · โตด้วยกำไรที่ล็อกแล้ว · เทรนด์เก็บเข้ากระเป๋า</b><br/><i>ทุก ticker เดินวงจรเดียวกัน · ใช้กระเป๋ากลางร่วมกัน · จดเป็นลิสต์ขั้นตอนเดียว</i>"]
+
+  subgraph CYC["วงจรของแต่ละ ticker — A · B · C … เดินวงจรเดียวกัน (เริ่มด้วย event open: Fix_c = c ที่ P₀ = t)"]
+    PAY["<b>① จ่าย K ก่อน (Deep ITM LEAPS)</b> · P2 Pay-first<br/>K = 12.4% · c · Hedge× (หรือ K จริง) · <i>event pay</i><br/><i>กระเป๋า: EV Reserve −K · Ev Burn +K<br/>จำ Eₙ ณ ตอนจ่าย (เริ่มนับ E_cyc)</i>"]
+    SWING["<b>② เก็บ E (หุ้น 20% · LEAPS 80%)</b> · <i>event move</i> (ราคา fill)<br/>P1 Shannon's Demon · P8 อ่านกำไรที่ E<br/>Rₙ = β + Fix_c × ln(Pₙ / P₀)<br/>ΔAₙ = Fix_c × (Pₙ / P_acted − 1) · Aₙ = Aₙ₋₁ + ΔAₙ<br/><b>Eₙ = Aₙ − Rₙ</b> ≥ 0 · P_acted ← Pₙ<br/><i>gap = Vₙ − Fix_c → บวก SELL · ลบ BUY · จำนวนหุ้น = |gap| ÷ Pₙ</i>"]
+    D{"<b>③ Surplus = E − K</b> บวกไหม ?<br/>S = E_cyc − K · E_cyc = Eₙ − Eₙ ตอนจ่าย K"}
+    TREND["<b>③.1 roll P ขึ้น · ดึง capital gain (เทรนด์ R) ออก · E อยู่ต่อ</b><br/>P4 Continuous Rollover · P5 Cash Lanes · <i>event cash</i><br/><i>กระเป๋า: Baseline b → Pool CF · P_acted เลื่อนไปที่ราคา fill แล้วตอน ②<br/>ไม่จ่าย K ซ้ำ · ไม่มีทุนใหม่ จึงไม่มี β</i>"]
+    SHIELD["<b>④ Shield</b> (Long Put · Zero-Cost · Put Ratio 2-1)<br/><i>ต้องยืนยันก่อนขยายทุน<br/>Zero-Cost ไม่ได้แปลว่าไม่เสี่ยง</i>"]
+    SCALE["<b>⑤.1 Scale Up fix_c</b> · P3 Free-Risk Scale-up · <i>event scale</i><br/>c′ = c + S (ไม่เคยลด)<br/>ใช้อะไร ? Liquidity ถ้าพอจ่าย K วงจรหน้า · ไม่พอ ซื้อ Deep ITM<br/><i>Liquidity = Pool CF + EV Reserve หลังชำระและหลังใช้ ≥ K′ ของ c′</i>"]
+    LIQ["<b>ก. Liquidity</b><br/><i>Pool CF −S<br/>ไม่มีเบี้ยใหม่</i>"]
+    DEEP["<b>ข. ซื้อ Deep ITM</b><br/><i>S พักใน Pool CF<br/>เบี้ยที่เพิ่ม = K ของ ① หน้า</i>"]
+    ROLL["<b>⑤.2 Rollover</b> (β · roll P ขึ้น · ดึง capital gain ออก) · P4 Continuous Rollover<br/><b>β += (Fix_c − Fix_c′) × ln(P_acted / P₀)</b><br/>บวกที่ R เท่านั้น · ไม่บวกที่ A<br/><i>กระเป๋า: ชำระ Pool CF +S · EV Reserve +K<br/>ดึง Baseline b → Pool CF</i>"]
+    MEASURE{"<b>วัดผล</b> (ΣE ÷ ΣK ≥ 1.0x) · P6 Ev Efficiency<br/><i>ป้ายสถานะ · ประตูจริงคือ S เป็นบวก</i>"}
+  end
+  GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
+
+  subgraph TREAS["กระเป๋ากลาง — ใช้ร่วมทุก ticker · เงินทุกก้อนขยับด้วย cash ชนิดเดียว"]
+    POOL["🎱 <b>Pool CF</b><br/>+ capital gain ที่ดึง (③.1 · ⑤.2)<br/>+ S ที่ชำระ (⑤.2) · − S ซื้อ Liquidity (⑤.1 ก.)<br/><i>ติดลบไม่ได้</i>"]
+    RESERVE["🛡️ <b>EV Reserve</b><br/>− K ตอนจ่าย (①)<br/>+ K คืนตอนชำระ (⑤.2)<br/><i>ติดลบได้ (มีเตือน)</i>"]
+    BURN["🔥 <b>Ev Burn</b> = ΣK ทุก ticker<br/>+ K ตอนจ่าย (①)<br/><i>(+ ที่ยกมาจากไฟล์เก่า)</i>"]
+    LIQD["💧 <b>Liquidity</b> = Pool CF + EV Reserve<br/>💵 นอกระบบ ⇄ Pool CF / EV Reserve<br/>🧺 Baseline b (ราย ticker) ⇄ Pool CF"]
+  end
+
+  subgraph DATA["Chain data — ลิสต์ขั้นตอนเดียว (data/app_v4.json)"]
+    CHAIN["📜 <b>ลิสต์เดียวของสิ่งที่ทำ</b><br/>open · pay · move · scale · cash<br/>เก็บเฉพาะ input · ตัวเลขทุกตัว replay ใหม่<br/>(เหมือน recompute_gated_ledger ของ LEGO)<br/><i>นำเข้าไฟล์เดิมได้: v4 · chain_system_backup.json · trading_data.json</i>"]
+    GUARD["🧱 <b>กติกาเดียว (apply)</b> ตอนโหลด = พรีวิว = บันทึก<br/>move ก่อน pay ไม่ได้ · scale ต้อง S เป็นบวก + Shield<br/>P7 Atomic + stale-proof · P9 Human-in-the-loop"]
+  end
+
+  KEY ~~~ PAY
+  PAY --> SWING --> D
+  D -->|ใช่| SHIELD
+  D -->|ไม่| TREND
+  TREND -->|กลับ ② · ไม่จ่าย K ซ้ำ ↻| SWING
+  SHIELD --> SCALE
+  SCALE -->|พอ| LIQ
+  SCALE -->|ไม่พอ| DEEP
+  LIQ --> ROLL
+  DEEP --> ROLL
+  ROLL --> MEASURE
+  MEASURE -->|ถึงเป้า| GOAL
+  MEASURE -.->|วนต่อ ↻ จ่าย K ของทุนใหม่ c′ ก่อนเสมอ| PAY
+
+  GOAL ~~~ POOL & RESERVE & BURN & LIQD
+  POOL & RESERVE & BURN & LIQD ~~~ CHAIN & GUARD
+
+  classDef key fill:#e0e7ff,stroke:#6366f1,stroke-width:3px,color:#312e81
+  classDef cost fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+  classDef money fill:#d1fae5,stroke:#10b981,color:#064e3b
+  classDef dec fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef roll fill:#fce7f3,stroke:#ec4899,color:#831843
+  classDef shield fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef scale fill:#cffafe,stroke:#06b6d4,color:#164e63
+  classDef alt fill:#ede9fe,stroke:#8b5cf6,color:#4c1d95
+  classDef goal fill:#fef08a,stroke:#ca8a04,stroke-width:4px,color:#422006
+  classDef bank fill:#ccfbf1,stroke:#14b8a6,color:#134e4a
+  classDef data fill:#f8fafc,stroke:#64748b,stroke-dasharray:5 4,color:#0f172a
+  class KEY key
+  class PAY cost
+  class SWING money
+  class D,MEASURE dec
+  class TREND,ROLL roll
+  class SHIELD shield
+  class SCALE scale
+  class LIQ,DEEP alt
+  class GOAL goal
+  class POOL,RESERVE,BURN,LIQD bank
+  class CHAIN,GUARD data
+  style CYC fill:#f8fafc,stroke:#cbd5e1,color:#0f172a
+  style TREAS fill:#f0fdfa,stroke:#99f6e4,color:#134e4a
+  style DATA fill:#f8fafc,stroke:#cbd5e1,color:#0f172a
