@@ -2,9 +2,11 @@
 
 The flowchart is hand-written Mermaid. These tests guard what is easy to break silently: a step that lost its instrument,
 the 20% / 80% split that stopped adding up to a whole, the order "pay K first, then harvest E", the way out of the
-question "is the Surplus positive?" (shield, then scale up fix_c with Liquidity or a Deep ITM, then the check), the goal
-text, and Mermaid's one parser trap for comments.
+question "is the Surplus positive?" (shield, then scale up fix_c with Liquidity or a Deep ITM, then the check), the
+Rollover that step 5 uses (the equation of streamlit_lego, checked against the project's ledger), the goal text, and
+Mermaid's one parser trap for comments.
 """
+import math
 import re
 import sys
 import unittest
@@ -31,7 +33,7 @@ class PlaybookChartTest(unittest.TestCase):
 
     def test_it_is_small_flat_and_every_edge_has_both_ends(self):
         self.assertTrue(self.text.startswith("---\ntitle:"))
-        self.assertEqual(self.nodes, {"K", "E", "D", "A", "S", "L", "I", "Q", "GOAL"})
+        self.assertEqual(self.nodes, {"K", "E", "D", "A", "S", "L", "I", "RO", "Q", "GOAL"})
         self.assertEqual((len(self.subgraphs), self.depth), (0, 0))
         self.assertEqual(sorted({x for e in self.edges for x in e} - self.nodes), [])
 
@@ -49,11 +51,13 @@ class PlaybookChartTest(unittest.TestCase):
         line = next(ln for ln in self.body.splitlines() if re.match(r"^\s*D\s*-->\|ไม่", ln))
         self.assertIn("เก็บ E ต่อ", line)
 
-    def test_a_positive_surplus_goes_shield_then_scale_up_then_the_check(self):
-        for edge in (("D", "A"), ("A", "S"), ("S", "L"), ("S", "I"), ("L", "Q"), ("I", "Q"), ("Q", "GOAL"), ("Q", "K")):
+    def test_a_positive_surplus_goes_shield_then_scale_up_then_rollover_then_the_check(self):
+        for edge in (("D", "A"), ("A", "S"), ("S", "L"), ("S", "I"), ("L", "RO"), ("I", "RO"), ("RO", "Q"), ("Q", "GOAL"), ("Q", "K")):
             self.assertIn(edge, self.edges)
         into = lambda n: {a for a, b in self.edges if b == n}                   # noqa: E731
-        self.assertEqual((into("A"), into("S"), into("Q")), ({"D"}, {"A"}, {"L", "I"}))
+        self.assertEqual((into("A"), into("S"), into("RO"), into("Q")), ({"D"}, {"A"}, {"L", "I"}, {"RO"}))
+        self.assertNotIn(("L", "Q"), self.edges)                                 # no way to the check that skips the Rollover
+        self.assertNotIn(("I", "Q"), self.edges)
         self.assertNotIn("Long Call", self.body)                                 # the earlier "or buy Long Put + Long Call" is gone
 
     def test_each_step_names_its_instrument(self):
@@ -96,11 +100,56 @@ class PlaybookChartTest(unittest.TestCase):
         self.assertIn("ถ้าเขียน R − A จะติดลบเสมอ", self.text)                    # and the header says why
 
     def test_the_principles_it_uses_carry_their_names(self):
-        for tag, name in (("P1", "Shannon's Demon"), ("P2", "Pay-first"), ("P3", "Free-Risk Scale-up"), ("P6", "Ev Efficiency"),
-                          ("P8", "อ่านกำไรที่ E")):
+        for tag, name in (("P1", "Shannon's Demon"), ("P2", "Pay-first"), ("P3", "Free-Risk Scale-up"), ("P4", "Continuous Rollover"),
+                          ("P6", "Ev Efficiency"), ("P8", "อ่านกำไรที่ E")):
             self.assertIn(f"{tag} {name}", self.body)
-        for dropped in ("P4", "P5", "P7", "P9"):
+        for dropped in ("P5", "P7", "P9"):
             self.assertNotRegex(self.body, rf"\b{dropped}\b")
+        tags = lambda text: set(re.findall(r"\bP\d\b", text.split("flowchart TB", 1)[1]))                         # noqa: E731
+        minimal = (ROOT / "app_v2_minimal.mmd").read_text(encoding="utf-8")
+        self.assertEqual(tags(self.text), tags(minimal))                         # the same six principles as the minimal chart
+
+    def test_step_5_scale_up_uses_the_rollover_of_streamlit_lego(self):
+        """⑤.2 carries P4 and LEGO's equation; the project's ledger agrees that R stays continuous with it — and that it breaks without."""
+        eq = "β += (Fix_c − Fix_c′) · ln(P_acted / P₀)"
+        step = label(self.text, "RO")
+        for text in ("⑤.2 Rollover", "P4 Continuous Rollover", "ได้ทุนใหม่ Fix_c′ แล้ว", "จุดหมุนคือ P_acted", eq,
+                     "β บวกที่ R เท่านั้น ไม่บวกที่ A", "R ต่อเนื่อง"):
+            self.assertIn(text, step)
+        scale_up = label(self.text, "S")
+        for text in ("⑤.1 Scale Up fix_c", "ทุนใหม่ Fix_c′ = Fix_c + Surplus"):     # 5.1 gives 5.2 its Fix_c′: new capital first, then the rollover
+            self.assertIn(text, scale_up)
+        header = self.text.split("flowchart TB", 1)[0]
+        self.assertIn("firstnattapon/streamlit_lego (cheat_sheet/rollover.mmd)", header)     # the source it follows
+        self.assertIn("ข้าม", header)                                                       # ③ "no" = LEGO's "skip": no capital change, no rollover
+        norm = lambda s: re.sub(r"\s+", " ", s.replace("Fix_c_new", "Fix_c′"))              # noqa: E731
+        self.assertIn(norm(eq), norm((ROOT / "ledger_v2.py").read_text(encoding="utf-8")))  # the same line as the code behind app-v2
+
+        # evaluate the chart's own equation on the worked example of the header and check what it is for
+        c0, c1, p0, pa = 1500.0, 2500.0, 100.0, 110.0                               # Fix_c → Fix_c′ at the pivot P_acted, anchor P₀
+        expr = eq.split("+=", 1)[1].replace("−", "-").replace("·", "*").replace("ln", "math.log")
+        expr = expr.replace("Fix_c′", "c1").replace("Fix_c", "c0").replace("P_acted", "pa").replace("P₀", "p0")
+        step_beta = eval(expr, {"__builtins__": {}, "math": math}, {"c0": c0, "c1": c1, "pa": pa, "p0": p0})   # noqa: S307
+        ln = math.log(pa / p0)
+        a_cash = c0 * (pa / p0 - 1.0)                                               # A after one act from P₀ to P_acted
+        r_before, r_after = c0 * ln, step_beta + c1 * ln
+        self.assertAlmostEqual(r_after, r_before, places=9)                         # R does not jump at the pivot …
+        e_with, e_without = a_cash - r_after, a_cash - c1 * ln
+        self.assertAlmostEqual(e_with, a_cash - r_before, places=9)                 # … so E is the same before and after the scale-up
+        self.assertLess(e_without, 0.0)                                             # without it R jumps and E ≥ 0 breaks
+        for number in (f"{a_cash - r_before:.2f}", f"{e_without:.2f}".replace("-", "−")):
+            self.assertIn(number, header)                                           # the header's worked numbers are the computed ones
+
+        sys.path.insert(0, str(ROOT))
+        import ledger_v2 as led                                                     # the project's own accounting of it
+        rounds = [{"action": "Chain Round", "p_old": p0, "p_new": pa, "c_before": c0, "c_after": c1},
+                  {"action": "Chain Round", "p_old": pa, "p_new": p0, "c_before": c1, "c_after": c1}]
+        rows = led.build({"rounds": rounds})["rows"]
+        for row in rows:
+            self.assertAlmostEqual(row["R_beta"], row["R"], places=9)               # R = β + Fix_c · ln(P / P₀) holds across the scale-up
+        self.assertAlmostEqual(rows[0]["beta_after"], step_beta, places=9)           # and its β is the chart's step
+        bare = rows[1]["fix_c"] * math.log(rows[1]["p_fill"] / rows[1]["p0"])        # the same R without any β
+        self.assertGreater(abs(bare - rows[1]["R"]), 1.0)                           # is far off: the rollover does real work
 
     def test_the_goal_is_word_for_word_the_same_as_the_other_charts(self):
         goal = lambda t: re.search(r'^\s*GOAL\("(.*)"\)\s*$', t, re.M).group(1)    # noqa: E731

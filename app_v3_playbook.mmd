@@ -1,5 +1,5 @@
 ---
-title: 'app-v3 แผนผังปฏิบัติ — K ก่อน (Deep ITM LEAPS) → เก็บ E (หุ้น 20% · LEAPS 80%) → Surplus บวก → Shield (Put Ratio 2-1) + Scale Up fix_c'
+title: 'app-v3 แผนผังปฏิบัติ — K ก่อน (Deep ITM LEAPS) → เก็บ E (หุ้น 20% · LEAPS 80%) → Surplus บวก → Shield (Put Ratio 2-1) + Scale Up fix_c ด้วย Rollover'
 config:
   flowchart:
     wrappingWidth: 560
@@ -12,26 +12,32 @@ config:
 %% ·
 %% วงจร:  ① จ่าย K ก่อน → ② เก็บ E ไปเรื่อยๆ → ③ Surplus = E − K บวกไหม?
 %%        ไม่  → กลับไปเก็บ E ต่อ (ไม่ต้องจ่าย K ซ้ำ)
-%%        ใช่  → ④ ทำ Black Swan Shields (Put Ratio 2-1) โดย ⑤ Scale Up fix_c แล้วเริ่มวงจรใหม่ที่ ①
+%%        ใช่  → ④ ทำ Black Swan Shields (Put Ratio 2-1) โดย ⑤.1 Scale Up fix_c แล้ว ⑤.2 Rollover จากนั้นวัดผล (ถึงเป้าหมาย หรือเริ่มวงจรใหม่ที่ ①)
 %% ·
 %%   นามธรรม (app_v2_minimal.mmd · app-v3)       →  เครื่องมือจริง (แผนผังนี้)
 %%   K  จ่ายเบี้ยก่อน (P2 Pay-first)              →  ① Deep ITM LEAPS (Stock Replacement)
 %%   E  เก็บกำไรจากความแกว่ง (P1 · P8)            →  ② หุ้น 20% (Liquidity) + Buying Power (LEAPS) 80% (Stock Replacement)
 %%   S  Surplus = E − K บวกไหม?                    →  ③ เหมือนเดิม
 %%   (ส่วนที่เหลือ)                                →  ④ Black Swan Shields (Long Put) · Zero-Cost Hedging Strategy Active · Put Ratio 2-1
-%%   โต c′ = c + Surplus (P3 Free-Risk Scale-up)   →  ⑤ Scale Up fix_c โดยไม่เสี่ยง (Zero-Cost) — ใช้ Liquidity เลย หรือ ซื้อ Deep ITM ก็ได้ ดูความเหมาะสม
+%%   โต c′ = c + Surplus (P3 Free-Risk Scale-up)   →  ⑤.1 Scale Up fix_c โดยไม่เสี่ยง (Zero-Cost) — ใช้ Liquidity เลย หรือ ซื้อ Deep ITM ก็ได้ ดูความเหมาะสม
 %%   เกณฑ์เลือก ก./ข. (ข้อเสนอ · ปรับได้)          →  ถ้าใช้ Liquidity แล้วยังเหลือพอจ่าย K ของวงจรหน้า → ก. · ไม่พอ → ข.
+%%   วนต่อ t′ = P (P4 Continuous Rollover)         →  ⑤.2 Rollover: β += (Fix_c − Fix_c′) · ln(P_acted / P₀) — ทุนเปลี่ยนแล้ว เส้นอ้างอิง R ไม่กระโดด
 %%   ไม่เหลือ                                      →  กลับไปเก็บ E ต่อ
 %%   วัดผล Ev Efficiency = ΣE ÷ ΣK (P6)           →  เช็กหลัง Scale Up ถึง 1.0x = ถึงเป้าหมาย · ยังไม่ถึง = วงจรใหม่
 %% ·
 %% หมายเหตุ
 %%  · E = A − R (สมการ LEGO: A = เงินสดจากการ rebalance · R = เส้นอ้างอิงตามเทรนด์) ≥ 0 เสมอ — ถ้าเขียน R − A จะติดลบเสมอ
 %%  · ลำดับในแผนผังนี้คือ "ลำดับลงมือ" (จ่าย K ก่อน แล้วค่อยเก็บ E) · E ใน ③ คือ E ที่สะสมตั้งแต่จ่าย K
-%%  · หุ้น 20% + LEAPS 80% = 100% ของ exposure ที่ถืออยู่ · "Deep ITM" ใน ⑤ คือ Deep ITM เดียวกับ ① (LEAPS)
+%%  · หุ้น 20% + LEAPS 80% = 100% ของ exposure ที่ถืออยู่ · "Deep ITM" ใน ⑤.1 คือ Deep ITM เดียวกับ ① (LEAPS)
 %%  · Put Ratio 2-1 เขียนตามที่ระบุ — ยังไม่กำหนดฝั่งซื้อ/ขายและ strike (เลือกเมื่อลงมือจริง)
-%%  · เกณฑ์เลือก ก./ข. ใน ⑤ เป็นข้อเสนอ ไม่ใช่กฎที่ระบุมา: "Liquidity" ในเกณฑ์ = เงินสด/ส่วนที่ขายเป็นเงินได้ทันที ·
+%%  · เกณฑ์เลือก ก./ข. ใน ⑤.1 เป็นข้อเสนอ ไม่ใช่กฎที่ระบุมา: "Liquidity" ในเกณฑ์ = เงินสด/ส่วนที่ขายเป็นเงินได้ทันที ·
 %%    เหตุผล = จ่าย K ก่อนเสมอ (P2) จึงห้ามให้การขยายกินเงินที่ต้องกันไว้จ่าย K · ก. คือทางตรง (ไม่มีเบี้ยใหม่ ไม่หมดอายุ) ·
 %%    ข. ใช้เงินน้อยกว่าสำหรับ exposure เท่ากัน แต่เบี้ย (time value) ที่จ่ายเพิ่มคือ K ใหม่ ต้องนับเข้า ΣK ให้ Ev Efficiency ไม่เกินจริง
+%%  · Rollover (P4) ตามนิยามใน firstnattapon/streamlit_lego (cheat_sheet/rollover.mmd): ได้ทุนใหม่ก่อน (⑤.1) แล้วค่อย Rollover (⑤.2) · P₀ ตรึงไว้ ไม่เปลี่ยน · จุดหมุนคือ P_acted (ราคา ACT ล่าสุด) ·
+%%    ทำเมื่อ Fix_c_new ≠ Fix_c คือเมื่อ ③ ตอบ "ใช่" (Surplus บวก ทุนโต) · ③ ตอบ "ไม่" = ทุนไม่เปลี่ยน = "ข้าม" ไม่ต้อง Rollover
+%%  · ทำไมต้อง Rollover: ทุนโตแล้ว R = Fix_c · ln(P / P₀) ชันขึ้น — ถ้าไม่ชดเชยด้วย β เส้น R จะกระโดดที่จุดหมุน ส่วนต่าง (Fix_c′ − Fix_c) · ln(P_acted / P₀) ·
+%%    E = A − R จึงเพี้ยน (กำไรปลอม/ขาดทุนปลอม และ E ≥ 0 พังได้) · ตัวอย่าง P₀ 100 · P_acted 110 · ทุน 1,500 → 2,500: ไม่ Rollover E = 7.03 → −88.28 · Rollover E คงที่ 7.03
+%%  · รูป Chain ของหลักเดียวกัน (app-v3 ขั้น ⑤ "t′ = P") = ตั้งจุดหมุนใหม่ที่ราคาปัจจุบัน แล้วรอบหน้าเริ่มนับที่นั่น — แผนผังนี้ใช้รูป LEGO (P₀ ตรึง + β) เพราะเป็นต้นฉบับ
 %% ═══════════════════════════════════════════════════════════════════════════════
 flowchart TB
 
@@ -39,9 +45,10 @@ flowchart TB
   E["<b>② เก็บกำไรจากความแกว่ง</b> · P1 Shannon's Demon · P8 อ่านกำไรที่ E<br/>E = A − R ≥ 0 <i>(ตัดเทรนด์ทิ้ง)</i><br/>= <b>หุ้น 20%</b> (Liquidity) + <b>Buying Power (LEAPS) 80%</b> (Stock Replacement)"]
   D{"<b>③ Surplus = E − K</b><br/>(E สะสมตั้งแต่จ่าย K) บวกไหม ?"}
   A["<b>④ เหลือ → เอาไปทำ Black Swan Shields</b> (Long Put)<br/><b>Zero-Cost Hedging</b> Strategy Active · <b>Put Ratio 2-1</b>"]
-  S["<b>⑤ Scale Up fix_c</b> โดยไม่เสี่ยง (Zero-Cost) · P3 Free-Risk Scale-up<br/>ใช้อะไร ? <i>ดูความเหมาะสม</i><br/>Liquidity หลังใช้ ยังเหลือพอจ่าย K ของวงจรหน้าไหม ?"]
+  S["<b>⑤.1 Scale Up fix_c</b> โดยไม่เสี่ยง (Zero-Cost) · P3 Free-Risk Scale-up<br/>ทุนใหม่ Fix_c′ = Fix_c + Surplus · ใช้อะไร ? <i>ดูความเหมาะสม</i><br/>Liquidity หลังใช้ ยังเหลือพอจ่าย K ของวงจรหน้าไหม ?"]
   L["<b>ก. ใช้ Liquidity เลย</b><br/><i>ง่ายสุด · ไม่มีเบี้ยใหม่ · ไม่หมดอายุ</i>"]
   I["<b>ข. หรือ ซื้อ Deep ITM</b><br/><i>ใช้เงินน้อยกว่า · เบี้ยที่จ่ายเพิ่ม = K ใหม่ (นับเข้า ΣK)</i>"]
+  RO["<b>⑤.2 Rollover</b> · P4 Continuous Rollover<br/>ได้ทุนใหม่ Fix_c′ แล้ว · จุดหมุนคือ P_acted (ราคาที่ลงมือขยาย)<br/><b>β += (Fix_c − Fix_c′) · ln(P_acted / P₀)</b><br/><i>R ต่อเนื่อง ไม่กระโดด · β บวกที่ R เท่านั้น ไม่บวกที่ A · (รูป Chain: t′ = P)</i>"]
   Q{"<b>วัดผล</b> · P6 Ev Efficiency<br/>ΣE ÷ ΣK ≥ 1.0x ?"}
   GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
 
@@ -51,8 +58,9 @@ flowchart TB
   A --> S
   S -->|พอ| L
   S -->|ไม่พอ| I
-  L --> Q
-  I --> Q
+  L --> RO
+  I --> RO
+  RO --> Q
   Q -->|ใช่| GOAL
   Q -->|ยังไม่ · วงจรใหม่ ↻| K
 
@@ -62,6 +70,7 @@ flowchart TB
   classDef shield fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
   classDef scale fill:#cffafe,stroke:#06b6d4,color:#164e63
   classDef alt fill:#ede9fe,stroke:#8b5cf6,color:#4c1d95
+  classDef roll fill:#fce7f3,stroke:#ec4899,color:#831843
   classDef score fill:#fef3c7,stroke:#f59e0b,color:#78350f
   classDef goal fill:#fef08a,stroke:#ca8a04,stroke-width:4px,color:#422006
   class K cost
@@ -70,5 +79,6 @@ flowchart TB
   class A shield
   class S scale
   class L,I alt
+  class RO roll
   class Q score
   class GOAL goal
