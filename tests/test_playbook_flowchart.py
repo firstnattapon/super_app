@@ -2,7 +2,8 @@
 
 The flowchart is hand-written Mermaid. These tests guard what is easy to break silently: a step that lost its instrument,
 the 20% / 80% split that stopped adding up to a whole, the order "pay K first, then harvest E", the way out of the
-question "is the Surplus positive?", the goal text, and Mermaid's one parser trap for comments.
+question "is the Surplus positive?" (shield, then scale up fix_c with Liquidity or a Deep ITM, then the check), the goal
+text, and Mermaid's one parser trap for comments.
 """
 import re
 import sys
@@ -30,7 +31,7 @@ class PlaybookChartTest(unittest.TestCase):
 
     def test_it_is_small_flat_and_every_edge_has_both_ends(self):
         self.assertTrue(self.text.startswith("---\ntitle:"))
-        self.assertEqual(self.nodes, {"K", "E", "D", "A", "B", "Q", "GOAL"})
+        self.assertEqual(self.nodes, {"K", "E", "D", "A", "S", "L", "I", "Q", "GOAL"})
         self.assertEqual((len(self.subgraphs), self.depth), (0, 0))
         self.assertEqual(sorted({x for e in self.edges for x in e} - self.nodes), [])
 
@@ -48,24 +49,27 @@ class PlaybookChartTest(unittest.TestCase):
         line = next(ln for ln in self.body.splitlines() if re.match(r"^\s*D\s*-->\|ไม่", ln))
         self.assertIn("เก็บ E ต่อ", line)
 
-    def test_a_positive_surplus_has_two_ways_to_be_used_and_both_end_in_the_check(self):
-        for target in ("A", "B"):
-            self.assertIn(("D", target), self.edges)
-            self.assertIn((target, "Q"), self.edges)
-        self.assertIn(("Q", "GOAL"), self.edges)
-        self.assertIn(("Q", "K"), self.edges)                                    # not there yet: a new cycle, K first
+    def test_a_positive_surplus_goes_shield_then_scale_up_then_the_check(self):
+        for edge in (("D", "A"), ("A", "S"), ("S", "L"), ("S", "I"), ("L", "Q"), ("I", "Q"), ("Q", "GOAL"), ("Q", "K")):
+            self.assertIn(edge, self.edges)
+        into = lambda n: {a for a, b in self.edges if b == n}                   # noqa: E731
+        self.assertEqual((into("A"), into("S"), into("Q")), ({"D"}, {"A"}, {"L", "I"}))
+        self.assertNotIn("Long Call", self.body)                                 # the earlier "or buy Long Put + Long Call" is gone
 
     def test_each_step_names_its_instrument(self):
-        k, e, a, b = (label(self.text, n) for n in "KEAB")
+        step = {n: label(self.text, n) for n in "KEDASLI"}
         for text in ("จ่ายค่าประกัน (K) ก่อนเสมอ", "Deep ITM LEAPS", "Stock Replacement"):
-            self.assertIn(text, k)
+            self.assertIn(text, step["K"])
         for text in ("เก็บกำไรจากความแกว่ง", "E = A − R", "หุ้น 20%", "Liquidity", "Buying Power (LEAPS) 80%", "Stock Replacement"):
-            self.assertIn(text, e)
-        for text in ("Black Swan Shields", "Long Put", "Zero-Cost Hedging", "Strategy Active", "Scale Up fix_c", "Zero-Cost"):
-            self.assertIn(text, a)
-        for text in ("Long Put", "Long Call"):
-            self.assertIn(text, b)
-        self.assertIn("Surplus = E − K", label(self.text, "D"))
+            self.assertIn(text, step["E"])
+        self.assertIn("Surplus = E − K", step["D"])
+        for text in ("Black Swan Shields", "Long Put", "Zero-Cost Hedging", "Strategy Active", "Put Ratio 2-1"):
+            self.assertIn(text, step["A"])
+        self.assertNotIn("2:1", self.body)                                       # written as given: 2-1
+        for text in ("Scale Up fix_c", "Zero-Cost", "ดูความเหมาะสม"):
+            self.assertIn(text, step["S"])
+        self.assertIn("Liquidity", step["L"])                                    # scale up with the Liquidity itself …
+        self.assertIn("Deep ITM", step["I"])                                     # … or by buying a Deep ITM
 
     def test_the_split_is_a_whole(self):
         shares = [int(x) for x in re.findall(r"(\d+)%", label(self.text, "E"))]

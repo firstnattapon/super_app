@@ -1,5 +1,5 @@
 ---
-title: 'app-v3 แผนผังปฏิบัติ — จ่ายค่าประกันก่อน (Deep ITM LEAPS) → เก็บ E (หุ้น 20% · LEAPS 80%) → Surplus บวกไหม?'
+title: 'app-v3 แผนผังปฏิบัติ — K ก่อน (Deep ITM LEAPS) → เก็บ E (หุ้น 20% · LEAPS 80%) → Surplus บวก → Shield (Put Ratio 2-1) + Scale Up fix_c'
 config:
   flowchart:
     wrappingWidth: 560
@@ -8,42 +8,47 @@ config:
 ---
 %% ═══════════════════════════════════════════════════════════════════════════════
 %% app_v3_playbook.mmd — หลักการเดียวกับ app_v2_minimal.mmd แต่บอกว่า "ลงมือด้วยเครื่องมืออะไร"
-%% เป้าหมายเหมือนเดิมทุกตัวอักษร · 3 ขั้น + 1 คำถาม + 1 เช็ก (7 node)
+%% เป้าหมายเหมือนเดิมทุกตัวอักษร · 3 ขั้น + 1 คำถาม + 1 เช็ก
 %% ·
 %% วงจร:  ① จ่าย K ก่อน → ② เก็บ E ไปเรื่อยๆ → ③ Surplus = E − K บวกไหม?
 %%        ไม่  → กลับไปเก็บ E ต่อ (ไม่ต้องจ่าย K ซ้ำ)
-%%        ใช่  → เอาส่วนที่เหลือไปใช้ (ก. หรือ ข.) แล้วเริ่มวงจรใหม่ที่ ①
+%%        ใช่  → ④ ทำ Black Swan Shields (Put Ratio 2-1) โดย ⑤ Scale Up fix_c แล้วเริ่มวงจรใหม่ที่ ①
 %% ·
 %%   นามธรรม (app_v2_minimal.mmd · app-v3)       →  เครื่องมือจริง (แผนผังนี้)
 %%   K  จ่ายเบี้ยก่อน (P2 Pay-first)              →  ① Deep ITM LEAPS (Stock Replacement)
 %%   E  เก็บกำไรจากความแกว่ง (P1 · P8)            →  ② หุ้น 20% (Liquidity) + Buying Power (LEAPS) 80% (Stock Replacement)
 %%   S  Surplus = E − K บวกไหม?                    →  ③ เหมือนเดิม
-%%   โต c′ = c + Surplus (P3 Free-Risk Scale-up)   →  ④ ก. Black Swan Shields (Long Put) · Zero-Cost Hedging Strategy Active
-%%                                                        + Scale Up fix_c โดยไม่เสี่ยง (Zero-Cost)   หรือ   ข. Long Put + Long Call
+%%   (ส่วนที่เหลือ)                                →  ④ Black Swan Shields (Long Put) · Zero-Cost Hedging Strategy Active · Put Ratio 2-1
+%%   โต c′ = c + Surplus (P3 Free-Risk Scale-up)   →  ⑤ Scale Up fix_c โดยไม่เสี่ยง (Zero-Cost) — ใช้ Liquidity เลย หรือ ซื้อ Deep ITM ก็ได้ ดูความเหมาะสม
 %%   ไม่เหลือ                                      →  กลับไปเก็บ E ต่อ
-%%   วัดผล Ev Efficiency = ΣE ÷ ΣK (P6)           →  เช็กหลังใช้ส่วนที่เหลือ ถึง 1.0x = ถึงเป้าหมาย · ยังไม่ถึง = วงจรใหม่
+%%   วัดผล Ev Efficiency = ΣE ÷ ΣK (P6)           →  เช็กหลัง Scale Up ถึง 1.0x = ถึงเป้าหมาย · ยังไม่ถึง = วงจรใหม่
 %% ·
 %% หมายเหตุ
 %%  · E = A − R (สมการ LEGO: A = เงินสดจากการ rebalance · R = เส้นอ้างอิงตามเทรนด์) ≥ 0 เสมอ — ถ้าเขียน R − A จะติดลบเสมอ
 %%  · ลำดับในแผนผังนี้คือ "ลำดับลงมือ" (จ่าย K ก่อน แล้วค่อยเก็บ E) · E ใน ③ คือ E ที่สะสมตั้งแต่จ่าย K
-%%  · หุ้น 20% + LEAPS 80% = 100% ของ exposure ที่ถืออยู่
+%%  · หุ้น 20% + LEAPS 80% = 100% ของ exposure ที่ถืออยู่ · "Deep ITM" ใน ⑤ คือ Deep ITM เดียวกับ ① (LEAPS)
+%%  · Put Ratio 2-1 เขียนตามที่ระบุ — ยังไม่กำหนดฝั่งซื้อ/ขายและ strike (เลือกเมื่อลงมือจริง)
 %% ═══════════════════════════════════════════════════════════════════════════════
 flowchart TB
 
   K["<b>① จ่ายค่าประกัน (K) ก่อนเสมอ</b> · P2 Pay-first<br/>= <b>Deep ITM LEAPS</b> (Stock Replacement)"]
   E["<b>② เก็บกำไรจากความแกว่ง</b> · P1 Shannon's Demon · P8 อ่านกำไรที่ E<br/>E = A − R ≥ 0 <i>(ตัดเทรนด์ทิ้ง)</i><br/>= <b>หุ้น 20%</b> (Liquidity) + <b>Buying Power (LEAPS) 80%</b> (Stock Replacement)"]
   D{"<b>③ Surplus = E − K</b><br/>(E สะสมตั้งแต่จ่าย K) บวกไหม ?"}
-  A["<b>④ ก. เหลือ → เอาไปทำ</b> · P3 Free-Risk Scale-up<br/><b>Black Swan Shields</b> (Long Put) · <b>Zero-Cost Hedging</b> Strategy Active<br/><b>Scale Up fix_c</b> โดยไม่เสี่ยง (Zero-Cost)"]
-  B["<b>④ ข. หรือ → เอาไปซื้อ</b><br/><b>Long Put</b> + <b>Long Call</b>"]
+  A["<b>④ เหลือ → เอาไปทำ Black Swan Shields</b> (Long Put)<br/><b>Zero-Cost Hedging</b> Strategy Active · <b>Put Ratio 2-1</b>"]
+  S["<b>⑤ Scale Up fix_c</b> โดยไม่เสี่ยง (Zero-Cost) · P3 Free-Risk Scale-up<br/>ใช้อะไร ? <i>ดูความเหมาะสม</i>"]
+  L["<b>ก. ใช้ Liquidity เลย</b>"]
+  I["<b>ข. หรือ ซื้อ Deep ITM</b>"]
   Q{"<b>วัดผล</b> · P6 Ev Efficiency<br/>ΣE ÷ ΣK ≥ 1.0x ?"}
   GOAL("🏆 <b>เป้าหมายสูงสุด · Self-funding Compounding</b><br/>ให้ <b>ความแกว่งของราคาจ่ายค่าประกันของตัวเอง</b><br/>แล้วเอากำไรที่เหลือ <b>ขยายทุน (fix_c) วนเป็นลูกโซ่ ↻ ทุกรอบ</b><br/>Ev Efficiency ≥ 1.0x · Surplus เป็นบวก · Eₙ ไม่ลด<br/>ทุนเดิมไม่เพิ่มความเสี่ยง (Free Risk)")
 
   K --> E --> D
   D -->|ใช่| A
-  D -->|ใช่ · หรือ| B
   D -->|ไม่ · เก็บ E ต่อ ↻| E
-  A --> Q
-  B --> Q
+  A --> S
+  S --> L
+  S --> I
+  L --> Q
+  I --> Q
   Q -->|ใช่| GOAL
   Q -->|ยังไม่ · วงจรใหม่ ↻| K
 
@@ -51,6 +56,7 @@ flowchart TB
   classDef money fill:#d1fae5,stroke:#10b981,color:#064e3b
   classDef dec fill:#f1f5f9,stroke:#64748b,color:#0f172a
   classDef shield fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+  classDef scale fill:#cffafe,stroke:#06b6d4,color:#164e63
   classDef alt fill:#ede9fe,stroke:#8b5cf6,color:#4c1d95
   classDef score fill:#fef3c7,stroke:#f59e0b,color:#78350f
   classDef goal fill:#fef08a,stroke:#ca8a04,stroke-width:4px,color:#422006
@@ -58,6 +64,7 @@ flowchart TB
   class E money
   class D dec
   class A shield
-  class B alt
+  class S scale
+  class L,I alt
   class Q score
   class GOAL goal
